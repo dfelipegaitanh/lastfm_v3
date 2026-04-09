@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'lastfm' => [
+        'key' => env('LASTFM_API_KEY'),
+        'secret' => env('LASTFM_API_SECRET'),
+        'url' => env('LASTFM_API_URL', 'http://ws.audioscrobbler.com/2.0/'),
+    ],
+
 ];
