@@ -8,13 +8,21 @@ class LastFmClient
 {
     protected string $baseUrl;
     protected string $apiKey;
-    protected string $apiSecret;
+    protected ?string $defaultUser;
 
     public function __construct()
     {
         $this->baseUrl = config('services.lastfm.url', 'http://ws.audioscrobbler.com/2.0/');
         $this->apiKey = config('services.lastfm.key');
-        $this->apiSecret = config('services.lastfm.secret');
+        $this->defaultUser = config('services.lastfm.user');
+    }
+
+    /**
+     * Get the default user from config.
+     */
+    public function getDefaultUser(): ?string
+    {
+        return $this->defaultUser;
     }
 
     /**
