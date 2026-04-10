@@ -27,8 +27,8 @@ use App\Facades\LastFm;
             $this->info("Sincronizando Last.fm para el usuario: {$user}");
 
             // Prueba de conexión con artista
-            // $response = LastFm::getArtistInfo('babymonster');
+            $response = LastFm::getWeeklyChartList($user);
             
-            // $this->line(json_encode($response, JSON_PRETTY_PRINT));
+            $this->line(json_encode($response));
         }
     }

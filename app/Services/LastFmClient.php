@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Collection;
 
 class LastFmClient
 {
@@ -17,19 +18,26 @@ class LastFmClient
         $this->defaultUser = config('services.lastfm.user');
     }
 
-    /**
-     * Get the default user from config.
-     */
+    private function getRequest(string $method, array $params = [], string $dataKey = null): ?Collection
+    {
+        $response = $this->client()->get('', array_merge([
+            'method' => $method,
+        ], $params));
+
+        if (!$response->successful()) {
+            return null;
+        }
+
+        $data = $dataKey ? $response->json($dataKey) : $response->json();
+
+        return $data ? collect($data) : null;
+    }
+
     public function getDefaultUser(): ?string
     {
         return $this->defaultUser;
     }
 
-    /**
-     * Build the base HTTP client with default parameters required by Last.fm API.
-     * 
-     * @return \Illuminate\Http\Client\PendingRequest
-     */
     protected function client()
     {
         return Http::baseUrl($this->baseUrl)->withQueryParameters([
@@ -38,25 +46,17 @@ class LastFmClient
         ]);
     }
 
-    /**
-     * Example method to get info for an artist.
-     * 
-     * @param string $artist
-     * @return array|null
-     */
-    public function getArtistInfo(string $artist): ?array
+    public function getArtistInfo(string $artist): ?Collection
     {
-        $response = $this->client()->get('', [
-            'method' => 'artist.getinfo',
-            'artist' => $artist,
-        ]);
-
-        if ($response->successful()) {
-            return $response->json();
-        }
-
-        return null;
+        return $this->getRequest('artist.getinfo', ['artist' => $artist], 'artist');
     }
 
-    // Add more Last.fm API methods here as needed...
+    public function getWeeklyChartList(string $user): ?Collection
+    {
+        return $this->getRequest(
+            method: 'user.getweeklychartlist',
+            params: ['user' => $user],
+            dataKey: 'weeklychartlist.chart'
+        );
+    }
 }
