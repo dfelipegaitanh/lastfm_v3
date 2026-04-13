@@ -35,44 +35,20 @@ class lastfmSync_weekly extends Command
         $weeklyChartList->filter(fn ($chart) => $chart['to'] >= $registered)
             ->each(function ($chart) use ($user) {
 
-                try {
-                    $weeklyTrackList = LastFm::getWeeklyTrackList($user, $chart['from'], $chart['to'])
-                        ->filter(fn ($track) => ($track['playcount'] ?? 0) >= config('services.lastfm.top_songs'))
-                        ->map(function ($track) {
-                            return [
-                                'artist' => $track['artist']['#text'] ?? '',
-                                'track' => $track['name'] ?? '',
-                                'playcount' => $track['playcount'] ?? 0,
-                            ];
-                        })->each(function ($track) {
-                            dd($track);
-                        });
+                $weeklyTrackList = LastFm::getWeeklyTrackList($user, $chart['from'], $chart['to'])
+                    ->filter(fn ($track) => ($track['playcount'] ?? 0) >= config('services.lastfm.top_songs'))
+                    ->map(function ($track) {
+                        return [
+                            'artist' => $track['artist']['#text'] ?? '',
+                            'track' => $track['name'] ?? '',
+                            'playcount' => $track['playcount'] ?? 0,
+                        ];
+                    })->each(function ($track) {
+                        dd($track);
+                    });
 
-                    $this->info("Sincronizando semana: {$chart['from']} - {$chart['to']}. Songs {$weeklyTrackList->count()}");
-                } catch (\Exception $e) {
-                    $this->error($e->getMessage());
-                }
+                $this->info("Sincronizando semana: {$chart['from']} - {$chart['to']}. Songs {$weeklyTrackList->count()}");
 
-                // if(false) {
-                // $weeklyTrackList = LastFm::getWeeklyTrackList($user, $chart['from'], $chart['to']);
-                // try {
-                //     $weeklyTrackList->filter(fn (?array $track) => ($track['playcount'] ?? 0) > 40)
-                //         ->map(function ($track) {
-
-                //             dd($track);
-
-                //         return [
-                //             'artist' => $track['artist']['#text'] ?? '',
-                //             'track' => $track['name'] ?? '',
-                //             'playcount' => $track['playcount'] ?? 0,
-                //         ];
-                //     })->each(function ($track) {
-                //     //     dd($track);
-                //     })
-                //     ;
-                // } catch (\Exception $e) {
-                //     dd($weeklyTrackList);
-                // }
             });
 
     }
