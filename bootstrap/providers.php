@@ -1,8 +1,9 @@
 <?php
 
 use App\Providers\AppServiceProvider;
+use App\Providers\LastFmServiceProvider;
 
 return [
     AppServiceProvider::class,
-    App\Providers\LastFmServiceProvider::class,
+    LastFmServiceProvider::class,
 ];

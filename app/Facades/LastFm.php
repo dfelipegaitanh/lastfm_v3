@@ -2,10 +2,11 @@
 
 namespace App\Facades;
 
+use App\Services\LastFmClient;
 use Illuminate\Support\Facades\Facade;
 
 /**
- * @see \App\Services\LastFmClient
+ * @see LastFmClient
  */
 class LastFm extends Facade
 {
@@ -14,6 +15,6 @@ class LastFm extends Facade
      */
     protected static function getFacadeAccessor(): string
     {
-        return \App\Services\LastFmClient::class;
+        return LastFmClient::class;
     }
 }

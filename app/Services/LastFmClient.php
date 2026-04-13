@@ -3,12 +3,14 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Collection;
+use Illuminate\Support\LazyCollection;
 
 class LastFmClient
 {
     protected string $baseUrl;
+
     protected string $apiKey;
+
     protected ?string $defaultUser;
 
     public function __construct()
@@ -18,19 +20,19 @@ class LastFmClient
         $this->defaultUser = config('services.lastfm.user');
     }
 
-    private function getRequest(string $method, array $params = [], string $dataKey = null): ?Collection
+    private function getRequest(string $method, array $params, ?string $dataKey): ?LazyCollection
     {
         $response = $this->client()->get('', array_merge([
             'method' => $method,
         ], $params));
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             return null;
         }
 
         $data = $dataKey ? $response->json($dataKey) : $response->json();
 
-        return $data ? collect($data) : null;
+        return $data ? LazyCollection::make($data) : null;
     }
 
     public function getDefaultUser(): ?string
@@ -46,17 +48,28 @@ class LastFmClient
         ]);
     }
 
-    public function getArtistInfo(string $artist): ?Collection
+    public function getArtistInfo(string $artist): ?LazyCollection
     {
         return $this->getRequest('artist.getinfo', ['artist' => $artist], 'artist');
     }
 
-    public function getWeeklyChartList(string $user): ?Collection
+    public function getWeeklyChartList(string $user): ?LazyCollection
     {
         return $this->getRequest(
             method: 'user.getweeklychartlist',
             params: ['user' => $user],
             dataKey: 'weeklychartlist.chart'
+        );
+    }
+
+    public function getUserInfo(string $user): ?LazyCollection
+    {
+        return $this->getRequest(
+            method: 'user.getinfo',
+            params: [
+                'user' => $user,
+            ],
+            dataKey: 'user'
         );
     }
 }
