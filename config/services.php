@@ -39,6 +39,7 @@ return [
         'key' => env('LASTFM_API_KEY'),
         'user' => env('LASTFM_USER'),
         'url' => env('LASTFM_API_URL', 'http://ws.audioscrobbler.com/2.0/'),
+        'top_songs' => env('LASTFM_TOP_SONGS', 20),
     ],
 
 ];

@@ -20,19 +20,19 @@ class LastFmClient
         $this->defaultUser = config('services.lastfm.user');
     }
 
-    private function getRequest(string $method, array $params, ?string $dataKey): ?LazyCollection
+    private function getRequest(string $method, array $params, ?string $dataKey): LazyCollection
     {
         $response = $this->client()->get('', array_merge([
             'method' => $method,
         ], $params));
 
         if (! $response->successful()) {
-            return null;
+            return LazyCollection::make([]);
         }
 
         $data = $dataKey ? $response->json($dataKey) : $response->json();
 
-        return $data ? LazyCollection::make($data) : null;
+        return LazyCollection::make(is_array($data) ? $data : []);
     }
 
     public function getDefaultUser(): ?string
@@ -48,12 +48,12 @@ class LastFmClient
         ]);
     }
 
-    public function getArtistInfo(string $artist): ?LazyCollection
+    public function getArtistInfo(string $artist): LazyCollection
     {
         return $this->getRequest('artist.getinfo', ['artist' => $artist], 'artist');
     }
 
-    public function getWeeklyChartList(string $user): ?LazyCollection
+    public function getWeeklyChartList(string $user): LazyCollection
     {
         return $this->getRequest(
             method: 'user.getweeklychartlist',
@@ -62,7 +62,7 @@ class LastFmClient
         );
     }
 
-    public function getUserInfo(string $user): ?LazyCollection
+    public function getUserInfo(string $user): LazyCollection
     {
         return $this->getRequest(
             method: 'user.getinfo',
@@ -70,6 +70,19 @@ class LastFmClient
                 'user' => $user,
             ],
             dataKey: 'user'
+        );
+    }
+
+    public function getWeeklyTrackList(string $user, int $from, int $to): LazyCollection
+    {
+        return $this->getRequest(
+            method: 'user.getweeklytrackchart',
+            params: [
+                'user' => $user,
+                'from' => $from,
+                'to' => $to,
+            ],
+            dataKey: 'weeklytrackchart.track'
         );
     }
 }
