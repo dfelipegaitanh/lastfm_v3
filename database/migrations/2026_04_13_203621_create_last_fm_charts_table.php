@@ -12,11 +12,11 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('last_fm_charts', function (Blueprint $table) {
-            $table->string('from');
-            $table->string('to');
-            $table->string('user');
+            $table->id();
+            $table->string('from')->default('');
+            $table->string('to')->default('');
+            $table->string('user')->default('');
             $table->boolean('synced')->default(false);
-            $table->timestamps();
         });
     }
 

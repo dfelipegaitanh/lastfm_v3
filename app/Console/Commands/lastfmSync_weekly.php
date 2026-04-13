@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Facades\LastFm;
+use App\Models\LastFmChart;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -35,6 +36,18 @@ class lastfmSync_weekly extends Command
         $weeklyChartList->filter(fn ($chart) => $chart['to'] >= $registered)
             ->each(function ($chart) use ($user) {
 
+                $lastFmChart = LastFmChart::firstOrCreate([
+                    'from' => $chart['from'],
+                    'to' => $chart['to'],
+                    'user' => $user,
+                ]);
+
+                if ($lastFmChart->synced) {
+                    $this->info("Semana ya sincronizada: {$chart['from']} - {$chart['to']}");
+
+                    return;
+                }
+
                 $weeklyTrackList = LastFm::getWeeklyTrackList($user, $chart['from'], $chart['to'])
                     ->filter(fn ($track) => ($track['playcount'] ?? 0) >= config('services.lastfm.top_songs'))
                     ->map(function ($track) {
@@ -43,11 +56,15 @@ class lastfmSync_weekly extends Command
                             'track' => $track['name'] ?? '',
                             'playcount' => $track['playcount'] ?? 0,
                         ];
-                    })->each(function ($track) {
-                        dd($track);
                     });
+                // })->each(function ($track) {
+                //     dd($track);
+                // });
 
                 $this->info("Sincronizando semana: {$chart['from']} - {$chart['to']}. Songs {$weeklyTrackList->count()}");
+
+                $lastFmChart->synced = true;
+                $lastFmChart->save();
 
             });
 
