@@ -7,10 +7,9 @@ use Illuminate\Database\Eloquent\Attributes\WithoutTimestamps;
 use Illuminate\Database\Eloquent\Model;
 
 #[WithoutTimestamps]
-#[Fillable(['from', 'to', 'user', 'synced'])]
+#[Fillable(['from', 'to', 'user', 'synced', 'play_count_limit'])]
 class LastFmChart extends Model
 {
-
     protected function casts(): array
     {
         return [
@@ -19,4 +18,19 @@ class LastFmChart extends Model
         ];
     }
 
+    public static function forChart(string $from, string $to, string $user): static
+    {
+        return static::firstOrCreate([
+            'from' => $from,
+            'to' => $to,
+            'user' => $user,
+            'play_count_limit' => config('services.lastfm.top_songs'),
+        ]);
+    }
+
+    public function markAsSynced(): void
+    {
+        $this->synced = true;
+        $this->save();
+    }
 }

@@ -7,6 +7,7 @@ use App\Models\LastFmChart;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 #[Signature('lastfm:sync-weekly {user?}')]
 #[Description('Sync weekly data from Last.fm')]
@@ -36,11 +37,7 @@ class lastfmSync_weekly extends Command
         $weeklyChartList->filter(fn ($chart) => $chart['to'] >= $registered)
             ->each(function ($chart) use ($user) {
 
-                $lastFmChart = LastFmChart::firstOrCreate([
-                    'from' => $chart['from'],
-                    'to' => $chart['to'],
-                    'user' => $user,
-                ]);
+                $lastFmChart = LastFmChart::forChart($chart['from'], $chart['to'], $user);
 
                 if ($lastFmChart->synced) {
                     $this->info("Semana ya sincronizada: {$chart['from']} - {$chart['to']}");
@@ -55,16 +52,31 @@ class lastfmSync_weekly extends Command
                             'artist' => $track['artist']['#text'] ?? '',
                             'track' => $track['name'] ?? '',
                             'playcount' => $track['playcount'] ?? 0,
+                            'all' => $track,
                         ];
+                    })
+                    ->each(function ($track) {
+                        
+
+                        
                     });
-                // })->each(function ($track) {
-                //     dd($track);
-                // });
+
+                if ($weeklyTrackList->isEmpty()) {
+                    $lastFmChart->markAsSynced();
+                    $this->error("Semana sin canciones: {$chart['from']} - {$chart['to']}");
+
+                    return;
+
+                }
+
+                $this->table(
+                    ['Artist', 'Track', 'Playcount'],
+                    $weeklyTrackList->toArray()
+                );
 
                 $this->info("Sincronizando semana: {$chart['from']} - {$chart['to']}. Songs {$weeklyTrackList->count()}");
 
-                $lastFmChart->synced = true;
-                $lastFmChart->save();
+                $lastFmChart->markAsSynced();
 
             });
 
