@@ -85,4 +85,17 @@ class LastFmClient
             dataKey: 'weeklytrackchart.track'
         );
     }
+
+    public function getAlbumInfo(string $artist, string $album): LazyCollection
+    {
+        return $this->getRequest(
+            method: 'album.getinfo',
+            params: [
+                'artist' => $artist,
+                'album' => $album,
+                'autocorrect' => 1,
+            ],
+            dataKey: ''
+        );
+    }
 }
