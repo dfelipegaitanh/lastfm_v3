@@ -2,8 +2,12 @@
 
 namespace Database\Seeders;
 
+use App\Models\LastFmArtist;
 use App\Models\LastFmChart;
+use App\Models\LastFmTrack;
+use App\Models\LastFmTrackPlaycounts;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Schema;
 
 class ResetLastFm extends Seeder
 {
@@ -12,6 +16,11 @@ class ResetLastFm extends Seeder
      */
     public function run(): void
     {
-        LastFmChart::truncate();
+        Schema::withoutForeignKeyConstraints(function () {
+            LastFmChart::truncate();
+            LastFmArtist::truncate();
+            LastFmTrack::truncate();
+            LastFmTrackPlaycounts::truncate();
+        });
     }
 }

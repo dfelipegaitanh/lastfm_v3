@@ -3,11 +3,11 @@
 namespace App\Console\Commands;
 
 use App\Facades\LastFm;
+use App\Models\LastFmArtist;
 use App\Models\LastFmChart;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Log;
 
 #[Signature('lastfm:sync-weekly {user?}')]
 #[Description('Sync weekly data from Last.fm')]
@@ -40,7 +40,7 @@ class lastfmSync_weekly extends Command
                 $lastFmChart = LastFmChart::forChart($chart['from'], $chart['to'], $user);
 
                 if ($lastFmChart->synced) {
-                    $this->info("Semana ya sincronizada: {$chart['from']} - {$chart['to']}");
+                    $this->info("Semana ya sincronizada: {$lastFmChart->from->format('Y-m-d')} - {$lastFmChart->to->format('Y-m-d')}");
 
                     return;
                 }
@@ -50,20 +50,34 @@ class lastfmSync_weekly extends Command
                     ->map(function ($track) {
                         return [
                             'artist' => $track['artist']['#text'] ?? '',
+                            'artist_mbid' => $track['artist']['mbid'] ?? '',
                             'track' => $track['name'] ?? '',
+                            'track_mbid' => $track['mbid'] ?? '',
                             'playcount' => $track['playcount'] ?? 0,
-                            'all' => $track,
                         ];
                     })
-                    ->each(function ($track) {
-                        
+                    ->each(function ($track) use ($lastFmChart) {
 
-                        
+                        $lastFmArtist = LastFmArtist::firstOrCreate([
+                            'name' => $track['artist'],
+                            'mbid' => $track['artist_mbid'],
+                        ]);
+
+                        $lastFmTrack = $lastFmArtist->tracks()->firstOrCreate([
+                            'name' => $track['track'],
+                            'mbid' => $track['track_mbid'],
+                        ]);
+
+                        $lastFmChart->trackPlaycounts()->firstOrCreate([
+                            'last_fm_track_id' => $lastFmTrack->id,
+                            'playcount' => $track['playcount'],
+                        ]);
+
                     });
 
                 if ($weeklyTrackList->isEmpty()) {
                     $lastFmChart->markAsSynced();
-                    $this->error("Semana sin canciones: {$chart['from']} - {$chart['to']}");
+                    $this->error("Semana sin canciones: {$lastFmChart->from->format('Y-m-d')} - {$lastFmChart->to->format('Y-m-d')}");
 
                     return;
 
@@ -71,10 +85,14 @@ class lastfmSync_weekly extends Command
 
                 $this->table(
                     ['Artist', 'Track', 'Playcount'],
-                    $weeklyTrackList->toArray()
+                    $weeklyTrackList->map(fn ($track) => [
+                        'artist' => $track['artist'],
+                        'track' => $track['track'],
+                        'playcount' => $track['playcount'],
+                    ])
                 );
 
-                $this->info("Sincronizando semana: {$chart['from']} - {$chart['to']}. Songs {$weeklyTrackList->count()}");
+                $this->info("Sincronizando semana: {$lastFmChart->from->format('Y-m-d')} - {$lastFmChart->to->format('Y-m-d')}. Songs {$weeklyTrackList->count()}");
 
                 $lastFmChart->markAsSynced();
 
