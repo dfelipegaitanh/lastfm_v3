@@ -46,7 +46,7 @@ class lastfmSync_weekly extends Command
                 }
 
                 $weeklyTrackList = LastFm::getWeeklyTrackList($user, $chart['from'], $chart['to'])
-                    ->filter(fn ($track) => ($track['playcount'] ?? 0) >= config('services.lastfm.top_songs'))
+                    ->filter(fn ($track) => ($track['@attr']['rank'] ?? 0) <= config('services.lastfm.top_songs'))
                     ->map(function ($track) {
                         return [
                             'artist' => $track['artist']['#text'] ?? '',

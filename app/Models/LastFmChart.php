@@ -15,8 +15,8 @@ class LastFmChart extends Model
     protected function casts(): array
     {
         return [
-            'from' => 'datetime',
-            'to' => 'datetime',
+            'from' => 'datetime:Y-m-d H:i:s',
+            'to' => 'datetime:Y-m-d H:i:s',
         ];
     }
 
