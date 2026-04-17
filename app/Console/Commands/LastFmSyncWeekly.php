@@ -95,7 +95,6 @@ class LastFmSyncWeekly extends Command
             ->filter(fn ($track) => ($track['@attr']['rank'] ?? 0) <= config('services.lastfm.top_songs'))
             ->map(function ($track) {
 
-
                 $artist = $track['artist']['#text'] ?? '';
                 $trackName = $track['name'] ?? '';
                 $rank = $track['@attr']['rank'] ?? 0;
@@ -103,12 +102,12 @@ class LastFmSyncWeekly extends Command
                 $albumMbid = '';
 
                 if ($artist && $trackName) {
-                    $lastFmTrackAlbum = LastFm::getTrackInfo($artist, $trackName);
+                    $this->info("Track: {$trackName}. Artist: {$artist}. Rank: {$rank}");
+                    $lastFmTrackInfo = LastFm::getTrackInfo($artist, $trackName);
 
-                    $album = $lastFmTrackAlbum->get('title');
-                    $albumMbid = $lastFmTrackAlbum->get('mbid');
+                    $album = $lastFmTrackInfo->get('album');
+                    $albumMbid = $lastFmTrackInfo->get('mbid');
 
-                    $this->info("Album: {$album}. Track: {$trackName}. Artist: {$artist}. Rank: {$rank}");
                 }
 
                 return [
