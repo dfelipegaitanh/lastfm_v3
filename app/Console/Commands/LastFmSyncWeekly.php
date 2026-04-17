@@ -8,7 +8,7 @@ use App\Models\LastFmChart;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
-use Illuminate\Support\LazyCollection;
+use Illuminate\Support\Collection;
 
 #[Signature('lastfm:sync-weekly {user?}')]
 #[Description('Sync weekly data from Last.fm')]
@@ -48,7 +48,13 @@ class LastFmSyncWeekly extends Command
                     return;
                 }
 
-                $weeklyTrackList = $this->getWeeklyTrackList($user, $lastFmChart);
+                try {
+                    $weeklyTrackList = $this->getWeeklyTrackList($user, $lastFmChart);
+                } catch (\Exception) {
+                    $this->error("Error al sincronizar semana: {$this->chartPeriod($lastFmChart)}");
+
+                    return;
+                }
 
                 if ($weeklyTrackList->isEmpty()) {
                     $lastFmChart->markAsSynced();
@@ -82,23 +88,44 @@ class LastFmSyncWeekly extends Command
         return "{$chart->from->format('Y-m-d')} - {$chart->to->format('Y-m-d')}";
     }
 
-    protected function getWeeklyTrackList(string $user, LastFmChart $lastFmChart): LazyCollection
+    protected function getWeeklyTrackList(string $user, LastFmChart $lastFmChart): Collection
     {
+
         return LastFm::getWeeklyTrackList($user, $lastFmChart->from->timestamp, $lastFmChart->to->timestamp)
             ->filter(fn ($track) => ($track['@attr']['rank'] ?? 0) <= config('services.lastfm.top_songs'))
             ->map(function ($track) {
+
+
+                $artist = $track['artist']['#text'] ?? '';
+                $trackName = $track['name'] ?? '';
+                $rank = $track['@attr']['rank'] ?? 0;
+                $album = '';
+                $albumMbid = '';
+
+                if ($artist && $trackName) {
+                    $lastFmTrackAlbum = LastFm::getTrackInfo($artist, $trackName);
+
+                    $album = $lastFmTrackAlbum->get('title');
+                    $albumMbid = $lastFmTrackAlbum->get('mbid');
+
+                    $this->info("Album: {$album}. Track: {$trackName}. Artist: {$artist}. Rank: {$rank}");
+                }
+
                 return [
-                    'artist' => $track['artist']['#text'] ?? '',
+                    'artist' => $artist,
                     'artist_mbid' => $track['artist']['mbid'] ?? '',
-                    'track' => $track['name'] ?? '',
+                    'track' => $trackName,
                     'track_mbid' => $track['mbid'] ?? '',
                     'playcount' => $track['playcount'] ?? 0,
+                    'rank' => $rank,
+                    'album' => $album,
+                    'album_mbid' => $albumMbid,
                 ];
-            });
+            })->collect();
 
     }
 
-    protected function persistTrackList(LastFmChart $lastFmChart, LazyCollection $weeklyTrackList)
+    protected function persistTrackList(LastFmChart $lastFmChart, Collection $weeklyTrackList)
     {
         $weeklyTrackList->each(function ($track) use ($lastFmChart) {
 
@@ -115,6 +142,7 @@ class LastFmSyncWeekly extends Command
             $lastFmChart->trackPlaycounts()->firstOrCreate([
                 'last_fm_track_id' => $lastFmTrack->id,
                 'playcount' => $track['playcount'],
+                'rank' => $track['rank'],
             ]);
 
         });

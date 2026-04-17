@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\LazyCollection;
+use Illuminate\Support\Collection;
 
 class LastFmClient
 {
@@ -20,19 +20,19 @@ class LastFmClient
         $this->defaultUser = config('services.lastfm.user');
     }
 
-    private function getRequest(string $method, array $params, ?string $dataKey): LazyCollection
+    private function getRequest(string $method, array $params, ?string $dataKey): Collection
     {
         $response = $this->client()->get('', array_merge([
             'method' => $method,
         ], $params));
 
         if (! $response->successful()) {
-            return LazyCollection::make([]);
+            return Collection::make([]);
         }
 
         $data = $dataKey ? $response->json($dataKey) : $response->json();
 
-        return LazyCollection::make(is_array($data) ? $data : []);
+        return Collection::make(is_array($data) ? $data : []);
     }
 
     public function getDefaultUser(): ?string
@@ -48,12 +48,12 @@ class LastFmClient
         ]);
     }
 
-    public function getArtistInfo(string $artist): LazyCollection
+    public function getArtistInfo(string $artist): Collection
     {
         return $this->getRequest('artist.getinfo', ['artist' => $artist], 'artist');
     }
 
-    public function getWeeklyChartList(string $user): LazyCollection
+    public function getWeeklyChartList(string $user): Collection
     {
         return $this->getRequest(
             method: 'user.getweeklychartlist',
@@ -62,7 +62,7 @@ class LastFmClient
         );
     }
 
-    public function getUserInfo(string $user): LazyCollection
+    public function getUserInfo(string $user): Collection
     {
         return $this->getRequest(
             method: 'user.getinfo',
@@ -73,7 +73,7 @@ class LastFmClient
         );
     }
 
-    public function getWeeklyTrackList(string $user, int $from, int $to): LazyCollection
+    public function getWeeklyTrackList(string $user, int $from, int $to): Collection
     {
         return $this->getRequest(
             method: 'user.getweeklytrackchart',
@@ -86,16 +86,27 @@ class LastFmClient
         );
     }
 
-    public function getAlbumInfo(string $artist, string $album): LazyCollection
+    public function getAlbumInfo(string $artist, string $album): Collection
     {
         return $this->getRequest(
             method: 'album.getinfo',
             params: [
                 'artist' => $artist,
                 'album' => $album,
-                'autocorrect' => 1,
             ],
-            dataKey: ''
+            dataKey: 'album'
+        );
+    }
+
+    public function getTrackInfo(string $artist, string $track): Collection
+    {
+        return $this->getRequest(
+            method: 'track.getinfo',
+            params: [
+                'artist' => $artist,
+                'track' => $track,
+            ],
+            dataKey: 'track.album'
         );
     }
 }

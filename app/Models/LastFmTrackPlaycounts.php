@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['playcount', 'last_fm_track_id'])]
+#[Fillable(['playcount', 'last_fm_track_id', 'rank'])]
 class LastFmTrackPlaycounts extends Model
 {
     public function track(): HasOne
