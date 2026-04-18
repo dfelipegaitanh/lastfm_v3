@@ -15,7 +15,9 @@ use Illuminate\Support\Collection;
 #[Description('Sync weekly data from Last.fm')]
 class LastFmSyncWeekly extends Command
 {
-    private string $user;
+    private array $artistIdMap = [];
+
+    private array $trackIdMap = [];
 
     /**
      * Execute the console command.
@@ -38,66 +40,69 @@ class LastFmSyncWeekly extends Command
         $this->info("Usuario registrado desde: {$registered}");
 
         $weeklyChartList = LastFm::getWeeklyChartList($user);
-        $weeklyChartList->filter(fn ($chart) => $chart['to'] >= $registered)
-            ->each(function ($chart) use ($user) {
+        $chartsToSync = $weeklyChartList->filter(fn ($chart) => $chart['to'] >= $registered);
 
-                $lastFmChart = LastFmChart::forChart($chart['from'], $chart['to'], $user);
+        $this->withProgressBar($chartsToSync, function ($chart) use ($user) {
 
-                if ($lastFmChart->synced) {
-                    $this->info("Semana ya sincronizada: {$this->chartPeriod($lastFmChart)}");
+            $lastFmChart = LastFmChart::forChart($chart['from'], $chart['to'], $user);
 
-                    return;
-                }
+            if ($lastFmChart->synced) {
+                $this->info("Semana ya sincronizada: {$this->chartPeriod($lastFmChart)}");
 
-                try {
-                    $weeklyTrackList = $this->getWeeklyTrackList($user, $lastFmChart);
-                } catch (\Exception) {
-                    $this->error("Error al sincronizar semana: {$this->chartPeriod($lastFmChart)}");
+                return;
+            }
 
-                    return;
-                }
+            try {
+                $weeklyTrackList = $this->getWeeklyTrackList($user, $lastFmChart);
+            } catch (\Exception) {
+                $this->error("Error al sincronizar semana: {$this->chartPeriod($lastFmChart)}");
 
-                if ($weeklyTrackList->isEmpty()) {
-                    $lastFmChart->markAsSynced();
-                    $this->error("Semana sin canciones: {$this->chartPeriod($lastFmChart)}");
+                return;
+            }
 
-                    return;
+            if ($weeklyTrackList->isEmpty()) {
+                $lastFmChart->markAsSynced();
+                $this->newLine();
+                $this->error("Semana sin canciones: {$this->chartPeriod($lastFmChart)}");
 
-                }
+                return;
 
-                $this->persistTrackList($lastFmChart, $weeklyTrackList);
+            }
 
+            $this->persistTrackList($lastFmChart, $weeklyTrackList);
+
+            $this->table(
+                ['Artist', 'Track', 'Playcount'],
+                $weeklyTrackList->map(fn ($track) => [
+                    'artist' => $track['artist'],
+                    'track' => $track['track'],
+                    'playcount' => $track['playcount'],
+                ]),
+                'borderless'
+            );
+
+            $this->info("Sincronizando semana: {$this->chartPeriod($lastFmChart)}. Songs {$weeklyTrackList->count()}");
+
+            $lastFmChart->markAsSynced();
+
+            $callCount = LastFmClient::getCallCount();
+            $this->newLine();
+            $this->info("📡 Total de llamadas reales a la API de Last.fm: {$callCount}");
+
+            $log = LastFmClient::getCallLog();
+            if (! empty($log)) {
                 $this->table(
-                    ['Artist', 'Track', 'Playcount'],
-                    $weeklyTrackList->map(fn ($track) => [
-                        'artist' => $track['artist'],
-                        'track' => $track['track'],
-                        'playcount' => $track['playcount'],
+                    ['Method', 'Count'],
+                    $log->countBy('method')->map(fn ($count, $method) => [
+                        $method,
+                        $count,
                     ]),
                     'borderless'
                 );
+            }
+            $this->newLine(2);
 
-                $this->info("Sincronizando semana: {$this->chartPeriod($lastFmChart)}. Songs {$weeklyTrackList->count()}");
-
-                $lastFmChart->markAsSynced();
-
-                $callCount = LastFmClient::getCallCount();
-                $this->newLine();
-                $this->info("📡 Total de llamadas reales a la API de Last.fm: {$callCount}");
-
-                $log = LastFmClient::getCallLog();
-                if (! empty($log)) {
-                    $this->table(
-                        ['Method', 'Count'],
-                        $log->countBy('method')->map(fn ($count, $method) => [
-                            $method,
-                            $count,
-                        ]),
-                        'borderless'
-                    );
-                }
-
-            });
+        });
 
     }
 
@@ -106,7 +111,7 @@ class LastFmSyncWeekly extends Command
         return "{$chart->from->format('Y-m-d')} - {$chart->to->format('Y-m-d')}";
     }
 
-    protected function getWeeklyTrackList(string $user, LastFmChart $lastFmChart): Collection
+    private function getWeeklyTrackList(string $user, LastFmChart $lastFmChart): Collection
     {
 
         return LastFm::getWeeklyTrackList($user, $lastFmChart->from->timestamp, $lastFmChart->to->timestamp)
@@ -141,19 +146,13 @@ class LastFmSyncWeekly extends Command
 
     }
 
-    protected function persistTrackList(LastFmChart $lastFmChart, Collection $weeklyTrackList)
+    private function persistTrackList(LastFmChart $lastFmChart, Collection $weeklyTrackList)
     {
         $weeklyTrackList->each(function ($track) use ($lastFmChart) {
 
-            $lastFmArtist = LastFmArtist::firstOrCreate([
-                'name' => $track['artist'],
-                'mbid' => $track['artist_mbid'],
-            ]);
+            $lastFmArtist = $this->getCachedArtist($track);
 
-            $lastFmTrack = $lastFmArtist->tracks()->firstOrCreate([
-                'name' => $track['track'],
-                'mbid' => $track['track_mbid'],
-            ]);
+            $lastFmTrack = $this->getCachedTrack($lastFmArtist, $track);
 
             $lastFmChart->trackPlaycounts()->firstOrCreate([
                 'last_fm_track_id' => $lastFmTrack->id,
@@ -162,5 +161,23 @@ class LastFmSyncWeekly extends Command
             ]);
 
         });
+    }
+
+    private function getCachedArtist(array $track): LastFmArtist
+    {
+        return $this->artistIdMap[$track['artist']] ??= LastFmArtist::firstOrCreate(
+            ['name' => $track['artist']],
+            ['mbid' => $track['artist_mbid']]
+        );
+    }
+
+    private function getCachedTrack(LastFmArtist $lastFmArtist, array $track)
+    {
+        $key = "{$lastFmArtist->id}|{$track['track']}";
+
+        return $this->trackIdMap[$key] ??= $lastFmArtist->tracks()->firstOrCreate([
+            'name' => $track['track'],
+            'mbid' => $track['track_mbid'],
+        ]);
     }
 }
