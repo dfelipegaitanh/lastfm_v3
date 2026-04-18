@@ -14,6 +14,8 @@ class LastFmClient
 
     protected ?string $defaultUser;
 
+    protected static array $callLog = [];
+
     public function __construct()
     {
         $this->baseUrl = config('services.lastfm.url', 'http://ws.audioscrobbler.com/2.0/');
@@ -21,8 +23,31 @@ class LastFmClient
         $this->defaultUser = config('services.lastfm.user');
     }
 
+    /** Total real HTTP calls made (cache hits excluded). */
+    public static function getCallCount(): int
+    {
+        return count(self::$callLog);
+    }
+
+    /** Full log including cache hits. */
+    public static function getCallLog(): Collection
+    {
+        return Collection::make(self::$callLog);
+    }
+
+    public static function resetCallLog(): void
+    {
+        self::$callLog = [];
+    }
+
     private function getRequest(string $method, array $params, ?string $dataKey): array
     {
+        self::$callLog[] = [
+            'method' => $method,
+            'params' => $params,
+            'called_at' => now()->toDateTimeString(),
+        ];
+
         $response = $this->client()->get('', array_merge([
             'method' => $method,
         ], $params));
@@ -49,80 +74,80 @@ class LastFmClient
         ]);
     }
 
-    public function getWeeklyChartList(string $user): Collection
+    private function cachedRequest(string $method, string $key, array $params, ?string $dataKey): Collection
     {
         $data = Cache::rememberForever(
-            'user.weeklychartlist.'.$user,
+            $key,
             fn () => $this->getRequest(
-            method: 'user.getweeklychartlist',
-            params: ['user' => $user],
-            dataKey: 'weeklychartlist.chart'
-        ));
-
-        return Collection::make($data);
-    }
-
-    public function getUserInfo(string $user): Collection
-    {
-        $data = Cache::rememberForever(
-            'user.info.'.$user,
-            fn () => $this->getRequest(
-                method: 'user.getinfo',
-                params: [
-                    'user' => $user,
-                ],
-                dataKey: 'user'
+                method: $method,
+                params: $params,
+                dataKey: $dataKey
             ));
 
         return Collection::make($data);
     }
 
+    public function getWeeklyChartList(string $user): Collection
+    {
+
+        return $this->cachedRequest(
+            'user.getweeklychartlist',
+            'user.weeklychartlist.'.$user,
+            ['user' => $user],
+            'weeklychartlist.chart'
+        );
+    }
+
+    public function getUserInfo(string $user): Collection
+    {
+
+        return $this->cachedRequest(
+            'user.getinfo',
+            'user.info.'.$user,
+            ['user' => $user],
+            'user'
+        );
+
+    }
+
     public function getWeeklyTrackList(string $user, int $from, int $to): Collection
     {
-        $data = Cache::rememberForever(
+
+        return $this->cachedRequest(
+            'user.getweeklytrackchart',
             'user.weeklytrackchart.'.$user.'.'.$from.'.'.$to,
-            fn () => $this->getRequest(
-            method: 'user.getweeklytrackchart',
-            params: [
+            [
                 'user' => $user,
                 'from' => $from,
                 'to' => $to,
             ],
             dataKey: 'weeklytrackchart.track'
-        ));
-
-        return Collection::make($data);
+        );
     }
 
     public function getAlbumInfo(string $artist, string $album): Collection
     {
-        $data = Cache::rememberForever(
+        return $this->cachedRequest(
+            'album.getinfo',
             'album.info.'.md5($artist.'|'.$album),
-            fn () => $this->getRequest(
-            method: 'album.getinfo',
-            params: [
+            [
                 'artist' => $artist,
                 'album' => $album,
             ],
-            dataKey: 'album'
-        ));
-
-        return Collection::make($data);
+            'album'
+        );
     }
 
     public function getTrackInfo(string $artist, string $track): Collection
     {
-        $data = Cache::rememberForever(
+        return $this->cachedRequest(
+            'track.getinfo',
             'track.info.'.md5($artist.'|'.$track),
-            fn () => $this->getRequest(
-            method: 'track.getinfo',
-            params: [
+            [
                 'artist' => $artist,
                 'track' => $track,
             ],
-            dataKey: 'track.album'
-        ));
-
-        return Collection::make($data);
+            'track.album'
+        );
     }
 }

@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Facades\LastFm;
 use App\Models\LastFmArtist;
 use App\Models\LastFmChart;
+use App\Services\LastFmClient;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -72,12 +73,29 @@ class LastFmSyncWeekly extends Command
                         'artist' => $track['artist'],
                         'track' => $track['track'],
                         'playcount' => $track['playcount'],
-                    ])
+                    ]),
+                    'borderless'
                 );
 
                 $this->info("Sincronizando semana: {$this->chartPeriod($lastFmChart)}. Songs {$weeklyTrackList->count()}");
 
                 $lastFmChart->markAsSynced();
+
+                $callCount = LastFmClient::getCallCount();
+                $this->newLine();
+                $this->info("📡 Total de llamadas reales a la API de Last.fm: {$callCount}");
+
+                $log = LastFmClient::getCallLog();
+                if (! empty($log)) {
+                    $this->table(
+                        ['Method', 'Count'],
+                        $log->countBy('method')->map(fn ($count, $method) => [
+                            $method,
+                            $count,
+                        ]),
+                        'borderless'
+                    );
+                }
 
             });
 
@@ -102,7 +120,6 @@ class LastFmSyncWeekly extends Command
                 $albumMbid = '';
 
                 if ($artist && $trackName) {
-                    $this->info("Track: {$trackName}. Artist: {$artist}. Rank: {$rank}");
                     $lastFmTrackInfo = LastFm::getTrackInfo($artist, $trackName);
 
                     $album = $lastFmTrackInfo->get('album');
