@@ -1,22 +1,24 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Services;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
-class LastFmClient
+final class LastFmClient
 {
-    protected string $baseUrl;
+    private string $apiKey;
 
-    protected string $apiKey;
+    private string $baseUrl;
 
-    protected ?string $defaultUser;
+    private static array $callLog = [];
 
-    protected static array $runtimeCache = [];
+    private ?string $defaultUser;
 
-    protected static array $callLog = [];
+    private static array $runtimeCache = [];
 
     public function __construct()
     {
@@ -40,6 +42,61 @@ class LastFmClient
         self::$callLog = [];
     }
 
+    public function getAlbumInfo(string $artist, string $album): Collection
+    {
+        return $this->resolve(
+            'album.getinfo',
+            ['artist' => $artist, 'album' => $album],
+            'album'
+        );
+    }
+
+    public function getDefaultUser(): ?string
+    {
+        return $this->defaultUser;
+    }
+
+    public function getTrackInfo(string $artist, string $track): Collection
+    {
+        // TODO: Aquí unificas el acceso a track.album de una vez
+        return $this->resolve(
+            'track.getinfo',
+            ['artist' => $artist, 'track' => $track],
+            'track'
+        );
+    }
+
+    public function getUserInfo(string $user): Collection
+    {
+
+        return $this->resolve('user.getinfo', ['user' => $user], 'user');
+
+    }
+
+    public function getWeeklyChartList(string $user): Collection
+    {
+
+        return $this->resolve('user.getweeklychartlist', ['user' => $user], 'weeklychartlist.chart');
+    }
+
+    public function getWeeklyTrackList(string $user, int $from, int $to): Collection
+    {
+
+        return $this->resolve(
+            'user.getweeklytrackchart',
+            ['user' => $user, 'from' => $from, 'to' => $to],
+            'weeklytrackchart.track'
+        );
+    }
+
+    private function client()
+    {
+        return Http::baseUrl($this->baseUrl)->withQueryParameters([
+            'api_key' => $this->apiKey,
+            'format' => 'json',
+        ]);
+    }
+
     private function getRequest(string $method, array $params, ?string $dataKey): array
     {
         self::$callLog[] = [
@@ -61,19 +118,6 @@ class LastFmClient
         return is_array($data) ? $data : [];
     }
 
-    public function getDefaultUser(): ?string
-    {
-        return $this->defaultUser;
-    }
-
-    protected function client()
-    {
-        return Http::baseUrl($this->baseUrl)->withQueryParameters([
-            'api_key' => $this->apiKey,
-            'format' => 'json',
-        ]);
-    }
-
     private function resolve(string $method, array $params, ?string $dataKey, ?string $customKey = null): Collection
     {
         $cacheKey = $customKey ?? 'lfm.'.md5($method.serialize($params));
@@ -82,54 +126,12 @@ class LastFmClient
             return self::$runtimeCache[$cacheKey];
         }
 
-        $data = Collection::make(Cache::rememberForever($cacheKey, function () use ($method, $params, $dataKey) {
+        $data = Collection::make(Cache::rememberForever($cacheKey, function () use ($method, $params, $dataKey): array {
             return $this->getRequest($method, $params, $dataKey);
         }));
 
         self::$runtimeCache[$cacheKey] = $data;
 
         return $data;
-    }
-
-    public function getWeeklyChartList(string $user): Collection
-    {
-
-        return $this->resolve('user.getweeklychartlist', ['user' => $user], 'weeklychartlist.chart');
-    }
-
-    public function getUserInfo(string $user): Collection
-    {
-
-        return $this->resolve('user.getinfo', ['user' => $user], 'user');
-
-    }
-
-    public function getWeeklyTrackList(string $user, int $from, int $to): Collection
-    {
-
-        return $this->resolve(
-            'user.getweeklytrackchart',
-            ['user' => $user, 'from' => $from, 'to' => $to],
-            'weeklytrackchart.track'
-        );
-    }
-
-    public function getAlbumInfo(string $artist, string $album): Collection
-    {
-        return $this->resolve(
-            'album.getinfo',
-            ['artist' => $artist, 'album' => $album],
-            'album'
-        );
-    }
-
-    public function getTrackInfo(string $artist, string $track): Collection
-    {
-        // TODO: Aquí unificas el acceso a track.album de una vez
-        return $this->resolve(
-            'track.getinfo',
-            ['artist' => $artist, 'track' => $track],
-            'track'
-        );
     }
 }
