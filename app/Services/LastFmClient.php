@@ -14,6 +14,8 @@ class LastFmClient
 
     protected ?string $defaultUser;
 
+    protected static array $runtimeCache = [];
+
     protected static array $callLog = [];
 
     public function __construct()
@@ -23,13 +25,11 @@ class LastFmClient
         $this->defaultUser = config('services.lastfm.user');
     }
 
-    /** Total real HTTP calls made (cache hits excluded). */
     public static function getCallCount(): int
     {
         return count(self::$callLog);
     }
 
-    /** Full log including cache hits. */
     public static function getCallLog(): Collection
     {
         return Collection::make(self::$callLog);
@@ -74,80 +74,62 @@ class LastFmClient
         ]);
     }
 
-    private function cachedRequest(string $method, string $key, array $params, ?string $dataKey): Collection
+    private function resolve(string $method, array $params, ?string $dataKey, ?string $customKey = null): Collection
     {
-        $data = Cache::rememberForever(
-            $key,
-            fn () => $this->getRequest(
-                method: $method,
-                params: $params,
-                dataKey: $dataKey
-            ));
+        $cacheKey = $customKey ?? 'lfm.'.md5($method.serialize($params));
 
-        return Collection::make($data);
+        if (isset(self::$runtimeCache[$cacheKey])) {
+            return self::$runtimeCache[$cacheKey];
+        }
+
+        $data = Collection::make(Cache::rememberForever($cacheKey, function () use ($method, $params, $dataKey) {
+            return $this->getRequest($method, $params, $dataKey);
+        }));
+
+        self::$runtimeCache[$cacheKey] = $data;
+
+        return $data;
     }
 
     public function getWeeklyChartList(string $user): Collection
     {
 
-        return $this->cachedRequest(
-            'user.getweeklychartlist',
-            'user.weeklychartlist.'.$user,
-            ['user' => $user],
-            'weeklychartlist.chart'
-        );
+        return $this->resolve('user.getweeklychartlist', ['user' => $user], 'weeklychartlist.chart');
     }
 
     public function getUserInfo(string $user): Collection
     {
 
-        return $this->cachedRequest(
-            'user.getinfo',
-            'user.info.'.$user,
-            ['user' => $user],
-            'user'
-        );
+        return $this->resolve('user.getinfo', ['user' => $user], 'user');
 
     }
 
     public function getWeeklyTrackList(string $user, int $from, int $to): Collection
     {
 
-        return $this->cachedRequest(
+        return $this->resolve(
             'user.getweeklytrackchart',
-            'user.weeklytrackchart.'.$user.'.'.$from.'.'.$to,
-            [
-                'user' => $user,
-                'from' => $from,
-                'to' => $to,
-            ],
-            dataKey: 'weeklytrackchart.track'
+            ['user' => $user, 'from' => $from, 'to' => $to],
+            'weeklytrackchart.track'
         );
     }
 
     public function getAlbumInfo(string $artist, string $album): Collection
     {
-        return $this->cachedRequest(
+        return $this->resolve(
             'album.getinfo',
-            'album.info.'.md5($artist.'|'.$album),
-            [
-                'artist' => $artist,
-                'album' => $album,
-            ],
+            ['artist' => $artist, 'album' => $album],
             'album'
         );
     }
 
     public function getTrackInfo(string $artist, string $track): Collection
     {
-        return $this->cachedRequest(
+        // TODO: Aquí unificas el acceso a track.album de una vez
+        return $this->resolve(
             'track.getinfo',
-            'track.info.'.md5($artist.'|'.$track),
-            [
-                'artist' => $artist,
-                'track' => $track,
-            ],
-            'track.album'
+            ['artist' => $artist, 'track' => $track],
+            'track'
         );
     }
 }
