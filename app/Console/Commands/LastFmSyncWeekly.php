@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Facades\LastFm;
+use App\Models\LastFmAlbum;
 use App\Models\LastFmArtist;
 use App\Models\LastFmChart;
 use App\Models\LastFmTrack;
@@ -19,6 +20,8 @@ use Illuminate\Support\Collection;
 #[Description('Sync weekly data from Last.fm')]
 final class LastFmSyncWeekly extends Command
 {
+    private array $albumIdMap = [];
+
     private array $artistIdMap = [];
 
     private array $trackIdMap = [];
@@ -76,9 +79,10 @@ final class LastFmSyncWeekly extends Command
             $this->persistTrackList($lastFmChart, $weeklyTrackList);
 
             $this->table(
-                ['Artist', 'Track', 'Playcount'],
+                ['Artist', 'Album', 'Track', 'Playcount'],
                 $weeklyTrackList->map(fn ($track): array => [
                     'artist' => $track['artist'],
+                    'album' => $track['album'],
                     'track' => $track['track'],
                     'playcount' => $track['playcount'],
                 ]),
@@ -113,6 +117,18 @@ final class LastFmSyncWeekly extends Command
         return sprintf('%s - %s', $chart->from->format('Y-m-d'), $chart->to->format('Y-m-d'));
     }
 
+    private function getCachedAlbumId(int $lastFmArtistId, array $album): int
+    {
+
+        $key = md5(serialize($lastFmArtistId.'|'.$album['album']));
+
+        return $this->albumIdMap[$key] ??= LastFmAlbum::firstOrCreate([
+            'last_fm_artist_id' => $lastFmArtistId,
+            'name' => $album['album'],
+            'mbid' => $album['album_mbid'],
+        ])->id;
+    }
+
     private function getCachedArtistId(array $track): int
     {
         $key = md5(serialize($track['artist'].'|'.$track['artist_mbid']));
@@ -127,10 +143,13 @@ final class LastFmSyncWeekly extends Command
     {
 
         $lastFmArtistId = $this->getCachedArtistId($track);
-        $key = md5(serialize($lastFmArtistId.'|'.$track['track']));
+        $lastFmAlbumId = $this->getCachedAlbumId($lastFmArtistId, $track);
+
+        $key = md5(serialize($lastFmArtistId.'|'.$lastFmAlbumId.'|'.$track['track']));
 
         return $this->trackIdMap[$key] ??= LastFmTrack::firstOrCreate([
             'last_fm_artist_id' => $lastFmArtistId,
+            'last_fm_album_id' => $lastFmAlbumId,
             'name' => $track['track'],
             'mbid' => $track['track_mbid'],
         ])->id;

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Models\LastFmAlbum;
 use App\Models\LastFmArtist;
 use App\Models\LastFmChart;
 use App\Models\LastFmTrack;
@@ -23,6 +24,7 @@ final class ResetLastFm extends Seeder
             LastFmArtist::truncate();
             LastFmTrack::truncate();
             LastFmTrackPlaycounts::truncate();
+            LastFmAlbum::truncate();
         });
     }
 }

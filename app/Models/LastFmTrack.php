@@ -11,10 +11,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'mbid', 'last_fm_artist_id'])]
+#[Fillable(['name', 'mbid', 'last_fm_artist_id', 'last_fm_album_id'])]
 #[Hidden(['created_at', 'updated_at'])]
 final class LastFmTrack extends Model
 {
+    public function album(): BelongsTo
+    {
+        return $this->belongsTo(LastFmAlbum::class);
+    }
+
     public function artist(): BelongsTo
     {
         return $this->belongsTo(LastFmArtist::class);
