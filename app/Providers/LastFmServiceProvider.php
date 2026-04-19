@@ -22,7 +22,7 @@ final class LastFmServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->singleton(LastFmClient::class, function ($app): \App\Services\LastFmClient {
+        $this->app->singleton(LastFmClient::class, function ($app): LastFmClient {
             return new LastFmClient;
         });
     }
