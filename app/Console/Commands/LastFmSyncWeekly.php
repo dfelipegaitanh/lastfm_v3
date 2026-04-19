@@ -7,6 +7,7 @@ namespace App\Console\Commands;
 use App\Facades\LastFm;
 use App\Models\LastFmArtist;
 use App\Models\LastFmChart;
+use App\Models\LastFmTrack;
 use App\Services\LastFmClient;
 use Exception;
 use Illuminate\Console\Attributes\Description;
@@ -112,24 +113,27 @@ final class LastFmSyncWeekly extends Command
         return sprintf('%s - %s', $chart->from->format('Y-m-d'), $chart->to->format('Y-m-d'));
     }
 
-    private function getCachedArtist(array $track): LastFmArtist
+    private function getCachedArtistId(array $track): int
     {
-        $key = md5(serialize($track));
+        $key = md5(serialize($track['artist'].'|'.$track['artist_mbid']));
 
         return $this->artistIdMap[$key] ??= LastFmArtist::firstOrCreate(
             ['name' => $track['artist']],
             ['mbid' => $track['artist_mbid']]
-        );
+        )->id;
     }
 
-    private function getCachedTrack(LastFmArtist $lastFmArtist, array $track)
+    private function getCachedTrack(array $track): int
     {
-        $key = sprintf('%s|%s', $lastFmArtist->id, $track['track']);
 
-        return $this->trackIdMap[$key] ??= $lastFmArtist->tracks()->firstOrCreate([
+        $lastFmArtistId = $this->getCachedArtistId($track);
+        $key = md5(serialize($lastFmArtistId.'|'.$track['track']));
+
+        return $this->trackIdMap[$key] ??= LastFmTrack::firstOrCreate([
+            'last_fm_artist_id' => $lastFmArtistId,
             'name' => $track['track'],
             'mbid' => $track['track_mbid'],
-        ]);
+        ])->id;
     }
 
     private function getWeeklyTrackList(string $user, LastFmChart $lastFmChart): Collection
@@ -142,14 +146,14 @@ final class LastFmSyncWeekly extends Command
                 $artist = $track['artist']['#text'] ?? '';
                 $trackName = $track['name'] ?? '';
                 $rank = $track['@attr']['rank'] ?? 0;
-                $album = '';
+                $albumTitle = '';
                 $albumMbid = '';
 
                 if ($artist && $trackName) {
                     $lastFmTrackInfo = LastFm::getTrackInfo($artist, $trackName);
 
-                    $album = $lastFmTrackInfo->get('album');
-                    $albumMbid = $lastFmTrackInfo->get('mbid');
+                    $albumTitle = data_get($lastFmTrackInfo->get('album'), 'title', 'Unknown Album');
+                    $albumMbid = data_get($lastFmTrackInfo->get('album'), 'mbid');
 
                 }
 
@@ -160,7 +164,7 @@ final class LastFmSyncWeekly extends Command
                     'track_mbid' => $track['mbid'] ?? '',
                     'playcount' => $track['playcount'] ?? 0,
                     'rank' => $rank,
-                    'album' => $album,
+                    'album' => $albumTitle,
                     'album_mbid' => $albumMbid,
                 ];
             })->collect();
@@ -171,13 +175,10 @@ final class LastFmSyncWeekly extends Command
     {
         $weeklyTrackList->each(function (array $track) use ($lastFmChart): void {
 
-            $lastFmArtist = $this->getCachedArtist($track);
-            // dd($lastFmArtist->toArray());
-
-            $lastFmTrack = $this->getCachedTrack($lastFmArtist, $track);
+            $lastFmTrackId = $this->getCachedTrack($track);
 
             $lastFmChart->trackPlaycounts()->firstOrCreate([
-                'last_fm_track_id' => $lastFmTrack->id,
+                'last_fm_track_id' => $lastFmTrackId,
                 'playcount' => $track['playcount'],
                 'rank' => $track['rank'],
             ]);

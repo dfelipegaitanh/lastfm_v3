@@ -58,7 +58,6 @@ final class LastFmClient
 
     public function getTrackInfo(string $artist, string $track): Collection
     {
-        // TODO: Aquí unificas el acceso a track.album de una vez
         return $this->resolve(
             'track.getinfo',
             ['artist' => $artist, 'track' => $track],
@@ -102,7 +101,6 @@ final class LastFmClient
         self::$callLog[] = [
             'method' => $method,
             'params' => $params,
-            'called_at' => now()->toDateTimeString(),
         ];
 
         $response = $this->client()->get('', array_merge([

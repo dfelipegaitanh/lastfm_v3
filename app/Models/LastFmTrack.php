@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['name', 'mbid'])]
+#[Fillable(['name', 'mbid', 'last_fm_artist_id'])]
 #[Hidden(['created_at', 'updated_at'])]
 final class LastFmTrack extends Model
 {
