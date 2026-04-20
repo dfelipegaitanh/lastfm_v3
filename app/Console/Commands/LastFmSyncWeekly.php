@@ -120,7 +120,7 @@ final class LastFmSyncWeekly extends Command
     private function getCachedAlbumId(int $lastFmArtistId, array $album): int
     {
 
-        $key = md5(serialize($lastFmArtistId.'|'.$album['album']));
+        $key = $lastFmArtistId.'|'.$album['album'];
 
         return $this->albumIdMap[$key] ??= LastFmAlbum::firstOrCreate([
             'last_fm_artist_id' => $lastFmArtistId,
@@ -131,7 +131,7 @@ final class LastFmSyncWeekly extends Command
 
     private function getCachedArtistId(array $track): int
     {
-        $key = md5(serialize($track['artist'].'|'.$track['artist_mbid']));
+        $key = $track['artist'].'|'.$track['artist_mbid'];
 
         return $this->artistIdMap[$key] ??= LastFmArtist::firstOrCreate(
             ['name' => $track['artist']],
@@ -145,7 +145,7 @@ final class LastFmSyncWeekly extends Command
         $lastFmArtistId = $this->getCachedArtistId($track);
         $lastFmAlbumId = $this->getCachedAlbumId($lastFmArtistId, $track);
 
-        $key = md5(serialize($lastFmArtistId.'|'.$lastFmAlbumId.'|'.$track['track']));
+        $key = $lastFmArtistId.'|'.$lastFmAlbumId.'|'.$track['track'];
 
         return $this->trackIdMap[$key] ??= LastFmTrack::firstOrCreate([
             'last_fm_artist_id' => $lastFmArtistId,

@@ -18,8 +18,6 @@ final class LastFmClient
 
     private ?string $defaultUser;
 
-    private static array $runtimeCache = [];
-
     public function __construct()
     {
         $this->baseUrl = config('services.lastfm.url', 'http://ws.audioscrobbler.com/2.0/');
@@ -96,7 +94,7 @@ final class LastFmClient
         ]);
     }
 
-    private function getRequest(string $method, array $params, ?string $dataKey): array
+    private function getRequest(string $method, array $params, ?string $dataKey): ?array
     {
         self::$callLog[] = [
             'method' => $method,
@@ -108,7 +106,8 @@ final class LastFmClient
         ], $params));
 
         if (! $response->successful()) {
-            return [];
+            dd($method, $params, $response->body());
+            return null;
         }
 
         $data = $dataKey ? $response->json($dataKey) : $response->json();
@@ -120,15 +119,10 @@ final class LastFmClient
     {
         $cacheKey = $customKey ?? 'lfm.'.md5($method.serialize($params));
 
-        if (isset(self::$runtimeCache[$cacheKey])) {
-            return self::$runtimeCache[$cacheKey];
-        }
 
         $data = Collection::make(Cache::rememberForever($cacheKey, function () use ($method, $params, $dataKey): array {
             return $this->getRequest($method, $params, $dataKey);
         }));
-
-        self::$runtimeCache[$cacheKey] = $data;
 
         return $data;
     }
