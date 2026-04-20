@@ -15,6 +15,7 @@ use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 #[Signature('lastfm:sync-weekly {user?}')]
 #[Description('Sync weekly data from Last.fm')]
@@ -61,7 +62,9 @@ final class LastFmSyncWeekly extends Command
 
             try {
                 $weeklyTrackList = $this->getWeeklyTrackList($user, $lastFmChart);
-            } catch (Exception) {
+            } catch (Exception $exception) {
+                Log::error($exception->getMessage());
+                $this->error($exception->getMessage());
                 $this->error('Error al sincronizar semana: '.$this->chartPeriod($lastFmChart));
 
                 return;

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use Exception;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -94,7 +95,10 @@ final class LastFmClient
         ]);
     }
 
-    private function getRequest(string $method, array $params, ?string $dataKey): ?array
+    /**
+     * @throws Exception
+     */
+    private function getRequest(string $method, array $params, ?string $dataKey): array
     {
         self::$callLog[] = [
             'method' => $method,
@@ -106,8 +110,7 @@ final class LastFmClient
         ], $params));
 
         if (! $response->successful()) {
-            dd($method, $params, $response->body());
-            return null;
+            throw new Exception('Error al obtener datos de Last.fm Method: '.$method.' Params: '.json_encode($params).' Response: '.$response->body());
         }
 
         $data = $dataKey ? $response->json($dataKey) : $response->json();
@@ -119,11 +122,8 @@ final class LastFmClient
     {
         $cacheKey = $customKey ?? 'lfm.'.md5($method.serialize($params));
 
-
-        $data = Collection::make(Cache::rememberForever($cacheKey, function () use ($method, $params, $dataKey): array {
+        return Collection::make(Cache::rememberForever($cacheKey, function () use ($method, $params, $dataKey): array {
             return $this->getRequest($method, $params, $dataKey);
         }));
-
-        return $data;
     }
 }
