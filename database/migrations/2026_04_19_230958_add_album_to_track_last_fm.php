@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Models\LastFmAlbum;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -13,7 +14,9 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('last_fm_artists');
+        Schema::table('last_fm_tracks', function (Blueprint $table): void {
+            $table->dropForeignIdFor(LastFmAlbum::class);
+        });
     }
 
     /**
@@ -21,11 +24,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('last_fm_artists', function (Blueprint $table): void {
-            $table->id();
-            $table->string('name');
-            $table->string('mbid')->nullable();
-            $table->timestamps();
+        Schema::table('last_fm_tracks', function (Blueprint $table): void {
+            $table->foreignIdFor(LastFmAlbum::class)->after('last_fm_artist_id');
         });
     }
 };

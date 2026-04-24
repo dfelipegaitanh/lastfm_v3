@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Facades;
 
 use App\Services\LastFmClient;
@@ -8,7 +10,7 @@ use Illuminate\Support\Facades\Facade;
 /**
  * @see LastFmClient
  */
-class LastFm extends Facade
+final class LastFm extends Facade
 {
     /**
      * Get the registered name of the component.

@@ -13,7 +13,9 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('last_fm_artists');
+        Schema::table('last_fm_track_playcounts', function (Blueprint $table): void {
+            $table->dropColumn('rank');
+        });
     }
 
     /**
@@ -21,11 +23,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('last_fm_artists', function (Blueprint $table): void {
-            $table->id();
-            $table->string('name');
-            $table->string('mbid')->nullable();
-            $table->timestamps();
+        Schema::table('last_fm_track_playcounts', function (Blueprint $table): void {
+            $table->unsignedInteger('rank')->nullable()->after('playcount');
         });
     }
 };

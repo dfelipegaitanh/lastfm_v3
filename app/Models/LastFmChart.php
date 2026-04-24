@@ -1,8 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Attributes\WithoutTimestamps;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -10,19 +13,12 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 #[WithoutTimestamps]
 #[Fillable(['from', 'to', 'user', 'synced', 'play_count_limit'])]
-class LastFmChart extends Model
+#[Hidden(['created_at', 'updated_at'])]
+final class LastFmChart extends Model
 {
-    protected function casts(): array
-    {
-        return [
-            'from' => 'datetime:Y-m-d H:i:s',
-            'to' => 'datetime:Y-m-d H:i:s',
-        ];
-    }
-
     public static function forChart(string $from, string $to, string $user): static
     {
-        return static::firstOrCreate([
+        return self::firstOrCreate([
             'from' => $from,
             'to' => $to,
             'user' => $user,
@@ -44,5 +40,13 @@ class LastFmChart extends Model
     public function tracks(): HasManyThrough
     {
         return $this->hasManyThrough(LastFmTrack::class, LastFmTrackPlaycounts::class);
+    }
+
+    protected function casts(): array
+    {
+        return [
+            'from' => 'datetime:Y-m-d H:i:s',
+            'to' => 'datetime:Y-m-d H:i:s',
+        ];
     }
 }
