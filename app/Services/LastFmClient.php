@@ -74,7 +74,7 @@ final class LastFmClient
     public function getWeeklyChartList(string $user): Collection
     {
 
-        return $this->resolve('user.getweeklychartlist', ['user' => $user], 'weeklychartlist.chart');
+        return $this->resolve(method: 'user.getweeklychartlist', params: ['user' => $user], dataKey: 'weeklychartlist.chart', cache: false);
     }
 
     public function getWeeklyTrackList(string $user, int $from, int $to): Collection
@@ -118,9 +118,13 @@ final class LastFmClient
         return is_array($data) ? $data : [];
     }
 
-    private function resolve(string $method, array $params, ?string $dataKey, ?string $customKey = null): Collection
+    private function resolve(string $method, array $params, ?string $dataKey, ?string $customKey = null, bool $cache = true): Collection
     {
         $cacheKey = $customKey ?? 'lfm.'.md5($method.serialize($params));
+
+        if ($cache === false) {
+            Cache::forget($cacheKey);
+        }
 
         return Collection::make(Cache::rememberForever($cacheKey, function () use ($method, $params, $dataKey): array {
             return $this->getRequest($method, $params, $dataKey);
