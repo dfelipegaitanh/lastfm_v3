@@ -14,7 +14,6 @@ use Exception;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
@@ -51,8 +50,7 @@ final class LastFmSyncWeekly extends Command
         $weeklyChartList = LastFm::getWeeklyChartList($user);
         $chartsToSync = $weeklyChartList->filter(fn ($chart): bool => $chart['to'] >= $registered);
 
-        $this->withProgressBar($chartsToSync, function (array $chart) use ($user): void {
-
+        $chartsToSync->each(function (array $chart) use ($user): void {
             $lastFmChart = LastFmChart::forChart($chart['from'], $chart['to'], $user);
 
             if ($lastFmChart->synced) {
@@ -67,6 +65,7 @@ final class LastFmSyncWeekly extends Command
                 Log::error($exception->getMessage());
                 $this->error($exception->getMessage());
                 $this->error('Error al sincronizar semana: '.$this->chartPeriod($lastFmChart));
+                $this->newLine();
 
                 return;
             }
@@ -75,12 +74,16 @@ final class LastFmSyncWeekly extends Command
                 $lastFmChart->markAsSynced();
                 $this->newLine();
                 $this->error('Semana sin canciones: '.$this->chartPeriod($lastFmChart));
+                $this->newLine();
 
                 return;
 
             }
 
             $this->persistTrackList($lastFmChart, $weeklyTrackList);
+
+            $this->newLine(2);
+            $this->warn('Semana # '.$lastFmChart->id.': '.sprintf('%s. Songs %d', $this->chartPeriod($lastFmChart), $weeklyTrackList->count()));
 
             $this->table(
                 ['Artist', 'Album', 'Track', 'Playcount'],
@@ -93,15 +96,11 @@ final class LastFmSyncWeekly extends Command
                 'borderless'
             );
 
-            $this->info(sprintf('Sincronizando semana: %s. Songs %d', $this->chartPeriod($lastFmChart), $weeklyTrackList->count()));
-
-            $lastFmChart->markAsSynced();
-
-            $callCount = LastFmClient::getCallCount();
             $this->newLine();
-            $this->info('📡 Total de llamadas reales a la API de Last.fm: '.$callCount);
-
+            $lastFmChart->markAsSynced();
             $log = LastFmClient::getCallLog();
+
+            $this->info('📡 Total de llamadas reales a la API de Last.fm: '.LastFmClient::getCallCount());
             $this->table(
                 ['Method', 'Count'],
                 $log->countBy('method')->map(fn ($count, $method): array => [
@@ -110,8 +109,7 @@ final class LastFmSyncWeekly extends Command
                 ]),
                 'borderless'
             );
-            $this->newLine(2);
-
+            $this->newLine();
         });
 
     }
