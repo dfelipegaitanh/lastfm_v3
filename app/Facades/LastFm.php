@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Facades;
 
-use App\Services\LastFmClient;
+use App\Cients\LastFmClient;
 use Illuminate\Support\Facades\Facade;
 
 /**

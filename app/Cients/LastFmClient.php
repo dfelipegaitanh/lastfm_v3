@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Services;
+namespace App\Cients;
 
 use Exception;
 use Illuminate\Support\Collection;
