@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('last_fm_tag_last_fm_track', function (Blueprint $table) {
+        Schema::create('last_fm_tag_last_fm_track', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('last_fm_tag_id')->constrained()->cascadeOnDelete();
             $table->foreignId('last_fm_track_id')->constrained()->cascadeOnDelete();

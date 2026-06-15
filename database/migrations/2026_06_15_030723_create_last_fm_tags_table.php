@@ -21,7 +21,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('last_fm_tags', function (Blueprint $table) {
+        Schema::create('last_fm_tags', function (Blueprint $table): void {
             $table->id();
             $table->string('name');
             $table->timestamps();
