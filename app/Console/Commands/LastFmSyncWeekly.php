@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Clients\LastFmClient;
 use App\Facades\LastFm;
 use App\Models\LastFmAlbum;
 use App\Models\LastFmArtist;
 use App\Models\LastFmChart;
 use App\Models\LastFmTrack;
-use App\Clients\LastFmClient;
 use Exception;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
@@ -85,6 +85,7 @@ final class LastFmSyncWeekly extends Command
             $this->newLine(2);
             $this->warn('Semana # '.$lastFmChart->id.': '.sprintf('%s. Songs %d', $this->chartPeriod($lastFmChart), $weeklyTrackList->count()));
 
+            dd($weeklyTrackList);
             $this->table(
                 ['Artist', 'Album', 'Track', 'Playcount'],
                 $weeklyTrackList->map(fn ($track): array => [
@@ -172,6 +173,12 @@ final class LastFmSyncWeekly extends Command
 
                 if ($artist && $trackName) {
                     $lastFmTrackInfo = LastFm::getTrackInfo($artist, $trackName);
+
+                    $tags = collect($lastFmTrackInfo['toptags']['tag'] ?? []);
+
+                    if ($tags->isNotEmpty()) {
+                        dd($tags);
+                    }
 
                     $albumTitle = data_get($lastFmTrackInfo->get('album'), 'title', 'Unknown Album');
                     $albumMbid = data_get($lastFmTrackInfo->get('album'), 'mbid');

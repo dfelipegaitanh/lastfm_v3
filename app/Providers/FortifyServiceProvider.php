@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
@@ -14,16 +16,8 @@ use Illuminate\Support\Str;
 use Laravel\Fortify\Actions\RedirectIfTwoFactorAuthenticatable;
 use Laravel\Fortify\Fortify;
 
-class FortifyServiceProvider extends ServiceProvider
+final class FortifyServiceProvider extends ServiceProvider
 {
-    /**
-     * Register any application services.
-     */
-    public function register(): void
-    {
-        //
-    }
-
     /**
      * Bootstrap any application services.
      */
@@ -75,5 +69,13 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::twoFactorChallengeView(function () {
             return \Inertia\Inertia::render('auth/two-factor-challenge');
         });
+    }
+
+    /**
+     * Register any application services.
+     */
+    public function register(): void
+    {
+        //
     }
 }
