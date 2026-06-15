@@ -9,7 +9,7 @@ use App\Models\LastFmAlbum;
 use App\Models\LastFmArtist;
 use App\Models\LastFmChart;
 use App\Models\LastFmTrack;
-use App\Services\LastFmClient;
+use App\Clients\LastFmClient;
 use Exception;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
