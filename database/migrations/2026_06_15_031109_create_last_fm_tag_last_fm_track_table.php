@@ -1,11 +1,21 @@
 <?php
 
+declare(strict_types=1);
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('last_fm_tag_last_fm_track');
+    }
+
     /**
      * Run the migrations.
      */
@@ -17,13 +27,5 @@ return new class extends Migration
             $table->foreignId('last_fm_track_id')->constrained()->cascadeOnDelete();
             $table->timestamps();
         });
-    }
-
-    /**
-     * Reverse the migrations.
-     */
-    public function down(): void
-    {
-        Schema::dropIfExists('last_fm_tag_last_fm_track');
     }
 };

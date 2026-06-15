@@ -9,6 +9,7 @@ use App\Facades\LastFm;
 use App\Models\LastFmAlbum;
 use App\Models\LastFmArtist;
 use App\Models\LastFmChart;
+use App\Models\LastFmTag;
 use App\Models\LastFmTrack;
 use Exception;
 use Illuminate\Console\Attributes\Description;
@@ -25,7 +26,11 @@ final class LastFmSyncWeekly extends Command
 
     private array $artistIdMap = [];
 
+    private array $tagIdMap = [];
+
     private array $trackIdMap = [];
+
+    private array $trackTagsSyncedMap = [];
 
     /**
      * Execute the console command.
@@ -85,7 +90,6 @@ final class LastFmSyncWeekly extends Command
             $this->newLine(2);
             $this->warn('Semana # '.$lastFmChart->id.': '.sprintf('%s. Songs %d', $this->chartPeriod($lastFmChart), $weeklyTrackList->count()));
 
-            dd($weeklyTrackList);
             $this->table(
                 ['Artist', 'Album', 'Track', 'Playcount'],
                 $weeklyTrackList->map(fn ($track): array => [
@@ -142,6 +146,11 @@ final class LastFmSyncWeekly extends Command
         )->id;
     }
 
+    private function getCachedTagId(string $tagName): int
+    {
+        return $this->tagIdMap[$tagName] ??= LastFmTag::firstOrCreate(['name' => $tagName])->id;
+    }
+
     private function getCachedTrack(array $track): int
     {
 
@@ -174,11 +183,7 @@ final class LastFmSyncWeekly extends Command
                 if ($artist && $trackName) {
                     $lastFmTrackInfo = LastFm::getTrackInfo($artist, $trackName);
 
-                    $tags = collect($lastFmTrackInfo['toptags']['tag'] ?? []);
-
-                    if ($tags->isNotEmpty()) {
-                        dd($tags);
-                    }
+                    $tags = collect(data_get($lastFmTrackInfo, 'toptags.tag', []));
 
                     $albumTitle = data_get($lastFmTrackInfo->get('album'), 'title', 'Unknown Album');
                     $albumMbid = data_get($lastFmTrackInfo->get('album'), 'mbid');
@@ -194,6 +199,7 @@ final class LastFmSyncWeekly extends Command
                     'rank' => $rank,
                     'album' => $albumTitle,
                     'album_mbid' => $albumMbid,
+                    'tags' => $tags->toArray(),
                 ];
             })->collect();
 
@@ -204,6 +210,20 @@ final class LastFmSyncWeekly extends Command
         $weeklyTrackList->each(function (array $track) use ($lastFmChart): void {
 
             $lastFmTrackId = $this->getCachedTrack($track);
+
+            if (empty($this->trackTagsSyncedMap[$lastFmTrackId])) {
+
+                if ($track['tags']) {
+
+                    $tagIds = collect($track['tags'])
+                        ->map(fn (array $tag): int => $this->getCachedTagId($tag['name']))
+                        ->toArray();
+
+                    LastFmTrack::find($lastFmTrackId)->tags()->syncWithoutDetaching($tagIds);
+                }
+
+                $this->trackTagsSyncedMap[$lastFmTrackId] = true;
+            }
 
             $lastFmChart->trackPlaycounts()->firstOrCreate([
                 'last_fm_track_id' => $lastFmTrackId,
