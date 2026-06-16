@@ -10,15 +10,24 @@ use Illuminate\Database\Eloquent\Attributes\WithoutTimestamps;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Support\Collection;
 
 #[WithoutTimestamps]
 #[Fillable(['from', 'to', 'user', 'synced', 'play_count_limit'])]
 #[Hidden(['created_at', 'updated_at'])]
 final class LastFmChart extends Model
 {
+    public static function existingCharts(string $user): Collection
+    {
+        return self::where('user', $user)
+            ->where('play_count_limit', config('services.lastfm.top_songs'))
+            ->get()
+            ->keyBy(fn (LastFmChart $c) => $c->from->timestamp);
+    }
+
     public static function forChart(string $from, string $to, string $user): static
     {
-        return self::firstOrCreate([
+        return self::create([
             'from' => $from,
             'to' => $to,
             'user' => $user,
