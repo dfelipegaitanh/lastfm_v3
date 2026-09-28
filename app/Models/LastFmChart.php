@@ -17,21 +17,21 @@ use Illuminate\Support\Collection;
 #[Hidden(['created_at', 'updated_at'])]
 final class LastFmChart extends Model
 {
-    public static function existingCharts(string $user): Collection
+    public static function existingCharts(string $user, int $limit): Collection
     {
         return self::where('user', $user)
-            ->where('play_count_limit', config('services.lastfm.top_songs'))
+            ->where('play_count_limit', $limit)
             ->get()
             ->keyBy(fn (LastFmChart $c) => $c->from->timestamp);
     }
 
-    public static function forChart(string $from, string $to, string $user): static
+    public static function forChart(string $from, string $to, int $limit, string $user): static
     {
         return self::create([
             'from' => $from,
             'to' => $to,
             'user' => $user,
-            'play_count_limit' => config('services.lastfm.top_songs'),
+            'play_count_limit' => $limit,
         ]);
     }
 

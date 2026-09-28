@@ -20,7 +20,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
-#[Signature('lastfm:sync-weekly {user?}')]
+#[Signature('lastfm:sync-weekly {user?} {--limit=}')]
 #[Description('Sync weekly data from Last.fm')]
 final class LastFmSyncWeekly extends Command
 {
@@ -40,6 +40,7 @@ final class LastFmSyncWeekly extends Command
     public function handle(): void
     {
         $user = $this->argument('user') ?? LastFm::getDefaultUser();
+        $limit = (int) ($this->option('limit') ?? config('services.lastfm.top_songs'));
 
         if (! $user) {
             $this->error('No se especificó un usuario');
@@ -53,33 +54,34 @@ final class LastFmSyncWeekly extends Command
             $dbQueries[$type] = ($dbQueries[$type] ?? 0) + 1;
         });
 
-        $this->info('Sincronizando Last.fm para el usuario: '.$user);
+        // $this->info('Sincronizando Last.fm para el usuario: '.$user);
 
         $userData = LastFm::getUserInfo($user);
 
         $registered = data_get($userData->get('registered'), 'unixtime');
-        $this->info('Usuario registrado desde: '.$registered);
+        // $this->info('Usuario registrado desde: '.$registered);
 
         $weeklyChartList = LastFm::getWeeklyChartList($user);
         $chartsToSync = $weeklyChartList->filter(fn ($chart): bool => $chart['to'] >= $registered);
 
-        $existingCharts = LastFmChart::existingCharts($user);
+        $existingCharts = LastFmChart::existingCharts($user, $limit);
 
-        $chartsToSync->each(function (array $chart) use ($user, &$dbQueries, $existingCharts): void {
+        $start = microtime(true);
+        $chartsToSync->each(function (array $chart) use ($user, &$dbQueries, $existingCharts, $limit): void {
             $lastFmChart = $existingCharts->get($chart['from']);
 
             if ($lastFmChart && $lastFmChart->synced) {
-                $this->info('Semana ya sincronizada: '.$this->chartPeriod($lastFmChart));
+                // $this->info('Semana ya sincronizada: '.$this->chartPeriod($lastFmChart));
 
                 return;
             }
 
             if (! $lastFmChart) {
-                $lastFmChart = LastFmChart::forChart($chart['from'], $chart['to'], $user);
+                $lastFmChart = LastFmChart::forChart($chart['from'], $chart['to'], $limit, $user);
             }
 
             try {
-                $weeklyTrackList = $this->getWeeklyTrackList($user, $lastFmChart);
+                $weeklyTrackList = $this->getWeeklyTrackList($user, $limit, $lastFmChart);
             } catch (Exception $exception) {
                 Log::error($exception->getMessage());
                 $this->error($exception->getMessage());
@@ -129,7 +131,6 @@ final class LastFmSyncWeekly extends Command
                 $count,
             ]);
 
-            
             $dbRows = collect($dbQueries)->map(fn ($count, $type): array => [
                 '🗄️ '.$type,
                 $count,
@@ -137,13 +138,14 @@ final class LastFmSyncWeekly extends Command
 
             $this->table(
                 ['Operación', 'Cantidad'],
-                $apiRows, //->concat($dbRows)->toArray(),
+                $apiRows, // ->concat($dbRows)->toArray(),
                 'borderless'
             );
             $this->newLine();
-            
 
         });
+
+        $this->info('Tiempo total: '.(microtime(true) - $start).' segundos');
 
     }
 
@@ -195,11 +197,11 @@ final class LastFmSyncWeekly extends Command
         ])->id;
     }
 
-    private function getWeeklyTrackList(string $user, LastFmChart $lastFmChart): Collection
+    private function getWeeklyTrackList(string $user, int $limit, LastFmChart $lastFmChart): Collection
     {
 
         return LastFm::getWeeklyTrackList($user, $lastFmChart->from->timestamp, $lastFmChart->to->timestamp)
-            ->filter(fn ($track): bool => ($track['@attr']['rank'] ?? 0) <= config('services.lastfm.top_songs'))
+            ->filter(fn ($track): bool => ($track['@attr']['rank'] ?? 0) <= $limit)
             ->map(function (array $track): array {
 
                 $artist = $track['artist']['#text'] ?? '';
