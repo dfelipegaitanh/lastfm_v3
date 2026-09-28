@@ -129,6 +129,7 @@ final class LastFmSyncWeekly extends Command
                 $count,
             ]);
 
+            
             $dbRows = collect($dbQueries)->map(fn ($count, $type): array => [
                 '🗄️ '.$type,
                 $count,
@@ -136,10 +137,11 @@ final class LastFmSyncWeekly extends Command
 
             $this->table(
                 ['Operación', 'Cantidad'],
-                $apiRows->concat($dbRows)->toArray(),
+                $apiRows, //->concat($dbRows)->toArray(),
                 'borderless'
             );
             $this->newLine();
+            
 
         });
 
