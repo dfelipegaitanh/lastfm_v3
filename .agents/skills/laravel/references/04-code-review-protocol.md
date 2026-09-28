@@ -32,6 +32,7 @@ flowchart TD
 | **Llamada a Facade dentro de un bucle** (ej: `LastFm::getTrackInfo()`) | *"Cuello de botella de red N+1 crítico."* | **Revisar el cliente:** Si el cliente usa `Cache::rememberForever()` o Redis, las peticiones repetitivas responden desde memoria local sin latencia de red. |
 | **Ausencia de `DB::transaction()` en ingesta de APIs externas** | *"Falta de atomicidad e inconsistencia de datos."* | **Evaluar estrategia de fallo:** En llamadas a APIs externas lentas o inestables, una transacción rígida descarta todo el progreso ante un fallo al 95%. La persistencia por hitos (checkpointing) permite reanudar sin perder llamadas previas. |
 | **Consultas de Eloquent en un loop** | *"Problema N+1 inaceptable."* | **Revisar memoización:** Si la clase usa mapas en memoria (`$this->idMap[$key] ??= ...`) para resolver entidades una sola vez por corrida, no hay N+1 en ejecuciones recurrentes. |
+| **Llamada a método estático de Modelo** (ej: `LastFmChart::existingCharts()`) | *"La semana queda congelada y no permite re-ejecutar con otros límites."* | **Abrir el Modelo:** Revisar el query en `app/Models/`. El modelo puede implementar **discriminadores de versión** (como `play_count_limit`), permitiendo coexistencia de múltiples versiones/snapshots de un mismo período sin conflicto. |
 | **Comando Artisan de más de 200 líneas** | *"Código totalmente roto y mal diseñado."* | **Distinguir:** Si la lógica funciona y está bien memoizada, el problema no es de rendimiento sino de **acoplamiento arquitectónico** (debe sugerirse extraer a una Action o Service, pero no descalificar la lógica de datos). |
 
 ---
@@ -63,6 +64,7 @@ Al calificar un módulo de código de 0 a 100%, utilizar el siguiente desglose p
 
 Antes de emitir una crítica o sugerir refactors al usuario:
 - [ ] ¿Abrí e inspeccioné los clientes HTTP o servicios llamados por el código?
+- [ ] ¿Abrí e inspeccioné los métodos personalizados de los Modelos Eloquent invocados (para verificar discriminadores de versión, filtros compuestos o scopes)?
 - [ ] ¿Verifiqué si existe una capa de caché (`Cache::rememberForever`, etc.)?
 - [ ] ¿Analicé la telemetría real (logs, `DB::listen`, contadores de llamadas)?
 - [ ] ¿Entendí el motivo por el cual el autor diseñó el flujo de esa forma antes de calificarlo como error?

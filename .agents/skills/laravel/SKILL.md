@@ -24,13 +24,16 @@ Este skill capacita al agente para actuar como un desarrollador senior y auditor
 1. **Rastreo de Fachadas y Clientes (No Asumir Comportamiento Externo):**
    - Si se observa una llamada a un Facade o servicio externo dentro de un bucle (ej: `LastFm::getTrackInfo()`, `Spotify::search()`, `PaymentGateway::charge()`), es **OBLIGATORIO** abrir e inspeccionar la clase subyacente (`app/Clients/`, `app/Services/`).
    - **Verificar Capas de Caché:** Comprobar si el cliente implementa `Cache::rememberForever()`, `Cache::remember()`, memoización estática o un store en Redis/Memcached. Si la llamada está cacheada, **NO es un cuello de botella de red N+1** para datos recurrentes.
-2. **Reconocimiento de Patrones de Ingesta Resiliente (Checkpointing vs Transacciones):**
+2. **Inspección Obligatoria de Métodos y Scopes en Modelos Eloquent:**
+   - Si el código utiliza métodos estáticos propios del modelo (ej: `LastFmChart::existingCharts()`, `Model::forUser()`, scopes locales o macros), es **OBLIGATORIO abrir el archivo del Modelo** (`app/Models/`).
+   - Prohibido asumir qué hace el query. Se debe verificar si el modelo aplica discriminadores de versión (como `play_count_limit`), columnas de snapshot, scopes globales o mutaciones antes de emitir diagnósticos sobre datos congelados o sobrescrituras.
+3. **Reconocimiento de Patrones de Ingesta Resiliente (Checkpointing vs Transacciones):**
    - Ante sincronizaciones masivas con APIs de terceros, evaluar si el autor utilizó deliberadamente **consistencia eventual o reanudación por puntos de control (checkpointing)**.
    - Si una transacción estricta (`DB::transaction`) causaría que un fallo en el registro 49 revierta y descarte 48 registros ya obtenidos con éxito de la API externa, la persistencia progresiva **NO se califica como defecto**, sino como una estrategia deliberada de tolerancia a fallos.
-3. **Inspección de Mapas en Memoria y Operaciones Masivas:**
+4. **Inspección de Mapas en Memoria y Operaciones Masivas:**
    - Verificar si la clase mantiene mapas asociativos privados (ej. `$artistIdMap`, `$trackIdMap`) para resolver llaves foráneas en RAM.
    - Verificar si el guardado final se realiza mediante `upsert()` o `insert()` masivo en lugar de inserts individuales.
-4. **Verificación de Telemetría Real:**
+5. **Verificación de Telemetría Real:**
    - Si el comando utiliza `DB::listen` o métricas de conteo de llamadas (ej. `getCallLog()`), guiarse por los datos medidos reales y no por suposiciones teóricas.
 
 ---
