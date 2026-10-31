@@ -89,10 +89,14 @@ final class LastFmClient
 
     private function client()
     {
-        return Http::baseUrl($this->baseUrl)->withQueryParameters([
-            'api_key' => $this->apiKey,
-            'format' => 'json',
-        ]);
+        return Http::baseUrl($this->baseUrl)
+            ->connectTimeout(5)
+            ->timeout(8)
+            ->retry(2, 200)
+            ->withQueryParameters([
+                'api_key' => $this->apiKey,
+                'format' => 'json',
+            ]);
     }
 
     /**
