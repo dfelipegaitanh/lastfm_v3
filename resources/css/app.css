@@ -3,9 +3,68 @@
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 @source '../**/*.blade.php';
-@source '../**/*.js';
+@source '../**/*.{js,jsx,ts,tsx}';
+
+:root {
+    color-scheme: light dark;
+    --background: light-dark(#fdfdfc, #0a0a0a);
+    --foreground: light-dark(#1b1b18, #ededec);
+    --card: light-dark(#ffffff, #161615);
+    --card-foreground: light-dark(#1b1b18, #ededec);
+    --popover: light-dark(#ffffff, #161615);
+    --popover-foreground: light-dark(#1b1b18, #ededec);
+    --primary: light-dark(#18181b, #fafafa);
+    --primary-foreground: light-dark(#fafafa, #18181b);
+    --secondary: light-dark(#f4f4f5, #27272a);
+    --secondary-foreground: light-dark(#18181b, #fafafa);
+    --muted: light-dark(#f4f4f5, #27272a);
+    --muted-foreground: light-dark(#706f6c, #a1a09a);
+    --accent: light-dark(#f4f4f5, #27272a);
+    --accent-foreground: light-dark(#18181b, #fafafa);
+    --destructive: light-dark(#ef4444, #7f1d1d);
+    --destructive-foreground: #fafafa;
+    --border: light-dark(#e3e3e0, #27272a);
+    --input: light-dark(#e3e3e0, #27272a);
+    --ring: light-dark(#18181b, #d4d4d8);
+    --radius: 0.5rem;
+    --sidebar-background: light-dark(#fbfbfa, #111110);
+    --sidebar-foreground: light-dark(#1b1b18, #ededec);
+    --sidebar-primary: light-dark(#18181b, #fafafa);
+    --sidebar-primary-foreground: light-dark(#fafafa, #18181b);
+    --sidebar-accent: light-dark(#f4f4f5, #27272a);
+    --sidebar-accent-foreground: light-dark(#18181b, #fafafa);
+    --sidebar-border: light-dark(#e3e3e0, #27272a);
+    --sidebar-ring: light-dark(#18181b, #d4d4d8);
+}
 
 @theme {
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-sidebar: var(--sidebar-background);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
 }
