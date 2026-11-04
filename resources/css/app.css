@@ -6,35 +6,76 @@
 @source '../**/*.{js,jsx,ts,tsx}';
 
 :root {
+    /* Raw light/dark tokens as recommended by dark-mode guidance */
+    --bg-light: #f8fafc;
+    --bg-dark: #0a0a0a;
+    --fg-light: #0f172a;
+    --fg-dark: #ededec;
+
+    --card-light: #ffffff;
+    --card-dark: #121212;
+    --card-header-light: #f1f5f9;
+    --card-header-dark: #171717;
+
+    --popover-light: #ffffff;
+    --popover-dark: #141414;
+
+    --muted-light: #f1f5f9;
+    --muted-dark: #1e1e20;
+    --muted-fg-light: #475569;
+    --muted-fg-dark: #a1a1aa;
+
+    --border-light: #e2e8f0;
+    --border-dark: #262626;
+
+    --brand-accent-light: #dc2626;
+    --brand-accent-dark: #ef4444;
+
+    --scrollbar-thumb-light: #94a3b8;
+    --scrollbar-thumb-dark: #52525b;
+    --scrollbar-track-light: #f1f5f9;
+    --scrollbar-track-dark: #18181b;
+
+    /* MANDATORY: Automatically adapt native UI to user system preferences */
     color-scheme: light dark;
-    --background: light-dark(#fdfdfc, #0a0a0a);
-    --foreground: light-dark(#1b1b18, #ededec);
-    --card: light-dark(#ffffff, #161615);
-    --card-foreground: light-dark(#1b1b18, #ededec);
-    --popover: light-dark(#ffffff, #161615);
-    --popover-foreground: light-dark(#1b1b18, #ededec);
-    --primary: light-dark(#18181b, #fafafa);
+
+    /* Reflect <meta name="color-scheme"> override in CSS without JS class dependency */
+    &:has(> head > meta[name="color-scheme"][content="dark"]) {
+        color-scheme: dark;
+    }
+
+    &:has(> head > meta[name="color-scheme"][content="light"]) {
+        color-scheme: light;
+    }
+
+    /* Semantic adaptive tokens via light-dark() */
+    --background: light-dark(var(--bg-light), var(--bg-dark));
+    --foreground: light-dark(var(--fg-light), var(--fg-dark));
+    --card: light-dark(var(--card-light), var(--card-dark));
+    --card-header: light-dark(var(--card-header-light), var(--card-header-dark));
+    --card-foreground: light-dark(var(--fg-light), var(--fg-dark));
+    --popover: light-dark(var(--popover-light), var(--popover-dark));
+    --popover-foreground: light-dark(var(--fg-light), var(--fg-dark));
+    --primary: light-dark(#0f172a, #fafafa);
     --primary-foreground: light-dark(#fafafa, #18181b);
-    --secondary: light-dark(#f4f4f5, #27272a);
-    --secondary-foreground: light-dark(#18181b, #fafafa);
-    --muted: light-dark(#f4f4f5, #27272a);
-    --muted-foreground: light-dark(#706f6c, #a1a09a);
-    --accent: light-dark(#f4f4f5, #27272a);
-    --accent-foreground: light-dark(#18181b, #fafafa);
-    --destructive: light-dark(#ef4444, #7f1d1d);
+    --secondary: light-dark(#f1f5f9, #27272a);
+    --secondary-foreground: light-dark(#0f172a, #fafafa);
+    --muted: light-dark(var(--muted-light), var(--muted-dark));
+    --muted-foreground: light-dark(var(--muted-fg-light), var(--muted-fg-dark));
+    --accent: light-dark(#f1f5f9, #27272a);
+    --accent-foreground: light-dark(#0f172a, #fafafa);
+    --destructive: light-dark(#dc2626, #7f1d1d);
     --destructive-foreground: #fafafa;
-    --border: light-dark(#e3e3e0, #27272a);
-    --input: light-dark(#e3e3e0, #27272a);
-    --ring: light-dark(#18181b, #d4d4d8);
+    --border: light-dark(var(--border-light), var(--border-dark));
+    --input: light-dark(var(--border-light), var(--border-dark));
+    --ring: light-dark(var(--brand-accent-light), var(--brand-accent-dark));
     --radius: 0.5rem;
-    --sidebar-background: light-dark(#fbfbfa, #111110);
-    --sidebar-foreground: light-dark(#1b1b18, #ededec);
-    --sidebar-primary: light-dark(#18181b, #fafafa);
-    --sidebar-primary-foreground: light-dark(#fafafa, #18181b);
-    --sidebar-accent: light-dark(#f4f4f5, #27272a);
-    --sidebar-accent-foreground: light-dark(#18181b, #fafafa);
-    --sidebar-border: light-dark(#e3e3e0, #27272a);
-    --sidebar-ring: light-dark(#18181b, #d4d4d8);
+
+    /* Native Browser UI hooks (accent-color + scrollbar-color with scrollbar-width for macOS) */
+    accent-color: light-dark(var(--brand-accent-light), var(--brand-accent-dark));
+    scrollbar-width: thin;
+    scrollbar-color: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark))
+        light-dark(var(--scrollbar-track-light), var(--scrollbar-track-dark));
 }
 
 @theme {
@@ -43,6 +84,7 @@
     --color-background: var(--background);
     --color-foreground: var(--foreground);
     --color-card: var(--card);
+    --color-card-header: var(--card-header);
     --color-card-foreground: var(--card-foreground);
     --color-popover: var(--popover);
     --color-popover-foreground: var(--popover-foreground);
@@ -59,12 +101,4 @@
     --color-border: var(--border);
     --color-input: var(--input);
     --color-ring: var(--ring);
-    --color-sidebar: var(--sidebar-background);
-    --color-sidebar-foreground: var(--sidebar-foreground);
-    --color-sidebar-primary: var(--sidebar-primary);
-    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-    --color-sidebar-accent: var(--sidebar-accent);
-    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-    --color-sidebar-border: var(--sidebar-border);
-    --color-sidebar-ring: var(--sidebar-ring);
 }

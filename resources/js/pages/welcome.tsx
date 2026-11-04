@@ -1,5 +1,5 @@
 import { Head } from '@inertiajs/react';
-import { Camera, Disc3, Headphones, MapPin, Sparkles, TrendingUp } from 'lucide-react';
+import { Camera, Disc3, Headphones, MapPin, Moon, Sparkles, Sun, TrendingUp } from 'lucide-react';
 import * as React from 'react';
 
 import {
@@ -130,6 +130,110 @@ const ARTISTS: Artist[] = [
     },
 ];
 
+/**
+ * Implementación del Two-State Toggle según `dark-mode-toggle` y `dark-mode`:
+ * - Estado 1: System default (sin valor en localStorage, <meta name="color-scheme" content="light dark">)
+ * - Estado 2: Override explícito ('light' o 'dark' en localStorage y en <meta name="color-scheme">)
+ * - Si al alternar el esquema objetivo coincide con el del sistema operativo, borra localStorage para volver a System.
+ */
+function ColorSchemeToggle() {
+    const [storedOverride, setStoredOverride] = React.useState<'light' | 'dark' | null>(() => {
+        if (typeof window === 'undefined') return null;
+        try {
+            const val = localStorage.getItem('color-scheme');
+            return val === 'light' || val === 'dark' ? val : null;
+        } catch {
+            return null;
+        }
+    });
+
+    const [systemScheme, setSystemScheme] = React.useState<'light' | 'dark'>(() => {
+        if (typeof window === 'undefined') return 'dark';
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    });
+
+    React.useEffect(() => {
+        const mql = window.matchMedia('(prefers-color-scheme: dark)');
+        const onSystemChange = (e: MediaQueryListEvent) => {
+            // MANDATORY según dark-mode-toggle: NUNCA borrar localStorage cuando el OS cambie,
+            // solo actualizar la lectura del sistema para resolver el tema cuando no hay override.
+            setSystemScheme(e.matches ? 'dark' : 'light');
+        };
+        mql.addEventListener('change', onSystemChange);
+
+        const onStorage = (e: StorageEvent) => {
+            if (e.key === 'color-scheme') {
+                const next = e.newValue === 'light' || e.newValue === 'dark' ? e.newValue : null;
+                setStoredOverride(next);
+                const meta = document.querySelector('meta[name="color-scheme"]');
+                if (meta) {
+                    meta.setAttribute('content', next ?? 'light dark');
+                }
+            }
+        };
+        window.addEventListener('storage', onStorage);
+
+        return () => {
+            mql.removeEventListener('change', onSystemChange);
+            window.removeEventListener('storage', onStorage);
+        };
+    }, []);
+
+    const renderedScheme = storedOverride ?? systemScheme;
+
+    const handleToggle = () => {
+        const targetScheme: 'light' | 'dark' = renderedScheme === 'dark' ? 'light' : 'dark';
+        const currentSys: 'light' | 'dark' = window.matchMedia('(prefers-color-scheme: dark)').matches
+            ? 'dark'
+            : 'light';
+        const meta = document.querySelector('meta[name="color-scheme"]');
+
+        if (targetScheme === currentSys) {
+            // El usuario deshizo su ajuste manual -> vuelve a seguir al sistema ("light dark")
+            try {
+                localStorage.removeItem('color-scheme');
+            } catch {}
+            setStoredOverride(null);
+            if (meta) meta.setAttribute('content', 'light dark');
+        } else {
+            // Difiere del sistema -> guarda el override literal ("light" o "dark")
+            try {
+                localStorage.setItem('color-scheme', targetScheme);
+            } catch {}
+            setStoredOverride(targetScheme);
+            if (meta) meta.setAttribute('content', targetScheme);
+        }
+    };
+
+    return (
+        <button
+            type="button"
+            onClick={handleToggle}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-card border border-border text-foreground hover:bg-muted transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            title={
+                storedOverride
+                    ? `Tema fijado en ${renderedScheme === 'dark' ? 'Oscuro' : 'Claro'} (clic para volver a Sistema)`
+                    : `Siguiendo al Sistema (${renderedScheme === 'dark' ? 'Oscuro' : 'Claro'})`
+            }
+        >
+            {renderedScheme === 'dark' ? (
+                <>
+                    <Sun className="size-3.5 text-amber-400" />
+                    <span>Modo Claro</span>
+                </>
+            ) : (
+                <>
+                    <Moon className="size-3.5 text-slate-700" />
+                    <span>Modo Oscuro</span>
+                </>
+            )}
+            <span className="text-[10px] px-1.5 py-0.2 rounded bg-muted text-muted-foreground font-mono">
+                {storedOverride ? 'Fijo' : 'Auto'}
+            </span>
+        </button>
+    );
+}
+
 function ArtistGalleryHoverCard({ artist }: { artist: Artist }) {
     const [api, setApi] = React.useState<CarouselApi>();
     const [current, setCurrent] = React.useState(0);
@@ -148,9 +252,9 @@ function ArtistGalleryHoverCard({ artist }: { artist: Artist }) {
             <HoverCardTrigger asChild>
                 <button
                     type="button"
-                    className="flex items-center gap-3.5 text-left group/trigger focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 rounded-xl p-1 -m-1 cursor-pointer"
+                    className="flex items-center gap-3.5 text-left group/trigger focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl p-1 -m-1 cursor-pointer"
                 >
-                    <div className="relative size-14 shrink-0 overflow-hidden rounded-xl border border-neutral-700/60 shadow-md bg-neutral-900">
+                    <div className="relative size-14 shrink-0 overflow-hidden rounded-xl border border-border shadow-sm bg-muted">
                         <img
                             src={artist.image}
                             alt={`Fotografía oficial de ${artist.name}`}
@@ -161,16 +265,16 @@ function ArtistGalleryHoverCard({ artist }: { artist: Artist }) {
                             decoding="async"
                             className="size-full object-cover object-center group-hover/trigger:scale-105 transition-transform duration-300"
                         />
-                        <span className="absolute bottom-1 right-1 inline-flex items-center justify-center rounded-md bg-black/75 px-1 py-0.5 text-[9px] font-semibold text-neutral-200 backdrop-blur-xs border border-white/10">
+                        <span className="absolute bottom-1 right-1 inline-flex items-center justify-center rounded-md bg-black/75 px-1 py-0.5 text-[9px] font-semibold text-white backdrop-blur-xs border border-white/10">
                             4
                         </span>
                     </div>
                     <div>
-                        <span className="flex items-center gap-1.5 text-base font-bold text-white group-hover/trigger:text-red-400 transition-colors">
+                        <span className="flex items-center gap-1.5 text-base font-bold text-foreground group-hover/trigger:text-red-500 transition-colors">
                             {artist.name}
-                            <Camera className="size-3.5 text-neutral-500 group-hover/trigger:text-red-400 transition-colors" />
+                            <Camera className="size-3.5 text-muted-foreground group-hover/trigger:text-red-500 transition-colors" />
                         </span>
-                        <span className="text-xs text-neutral-400 font-normal block">
+                        <span className="text-xs text-muted-foreground font-normal block">
                             {artist.genre}
                         </span>
                     </div>
@@ -181,19 +285,19 @@ function ArtistGalleryHoverCard({ artist }: { artist: Artist }) {
                 side="right"
                 align="start"
                 sideOffset={14}
-                className="w-88 sm:w-96 p-3.5 bg-[#141414]/95 backdrop-blur-md border-neutral-800 shadow-2xl rounded-2xl"
+                className="w-88 sm:w-96 p-3.5 bg-popover/95 backdrop-blur-md border-border shadow-2xl rounded-2xl"
             >
                 {/* Header del Popup */}
                 <div className="flex items-center justify-between gap-2 mb-2.5">
                     <div>
-                        <h3 className="text-sm font-bold text-white leading-tight">
+                        <h3 className="text-sm font-bold text-popover-foreground leading-tight">
                             {artist.name}
                         </h3>
-                        <p className="text-[11px] text-neutral-400">
+                        <p className="text-[11px] text-muted-foreground">
                             {artist.origin} • {artist.activeYears}
                         </p>
                     </div>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-neutral-900 border border-neutral-800 px-2.5 py-0.5 text-[11px] font-mono font-medium text-neutral-300">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-muted border border-border px-2.5 py-0.5 text-[11px] font-mono font-medium text-foreground">
                         {current + 1} / {artist.gallery.length}
                     </span>
                 </div>
@@ -210,7 +314,7 @@ function ArtistGalleryHoverCard({ artist }: { artist: Artist }) {
                     <CarouselContent>
                         {artist.gallery.map((photo, index) => (
                             <CarouselItem key={photo.src}>
-                                <div className="relative aspect-16/10 w-full overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900">
+                                <div className="relative aspect-16/10 w-full overflow-hidden rounded-xl border border-border bg-muted">
                                     <img
                                         src={photo.src}
                                         alt={`${artist.name} — Foto ${index + 1}: ${photo.caption}`}
@@ -221,7 +325,7 @@ function ArtistGalleryHoverCard({ artist }: { artist: Artist }) {
                                         className="size-full object-cover object-center"
                                     />
                                     <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/45 to-transparent p-2.5 pt-6">
-                                        <p className="text-[11px] text-neutral-200 leading-snug line-clamp-2">
+                                        <p className="text-[11px] text-white leading-snug line-clamp-2">
                                             {photo.caption}
                                         </p>
                                     </div>
@@ -234,7 +338,7 @@ function ArtistGalleryHoverCard({ artist }: { artist: Artist }) {
                 </Carousel>
 
                 {/* Indicadores inferiores (Dots) + Canción #1 */}
-                <div className="mt-3 pt-2.5 border-t border-neutral-800/80 flex items-center justify-between gap-2">
+                <div className="mt-3 pt-2.5 border-t border-border flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5" role="tablist" aria-label="Selector de foto">
                         {artist.gallery.map((photo, idx) => (
                             <button
@@ -247,13 +351,13 @@ function ArtistGalleryHoverCard({ artist }: { artist: Artist }) {
                                 className={`h-1.5 rounded-full transition-all cursor-pointer ${
                                     current === idx
                                         ? 'w-5 bg-red-500'
-                                        : 'w-1.5 bg-neutral-700 hover:bg-neutral-500'
+                                        : 'w-1.5 bg-muted-foreground/40 hover:bg-muted-foreground'
                                 }`}
                             />
                         ))}
                     </div>
-                    <span className="text-[11px] text-neutral-400 truncate">
-                        Top Track: <strong className="text-neutral-200">{artist.topTrack}</strong>
+                    <span className="text-[11px] text-muted-foreground truncate">
+                        Top Track: <strong className="text-foreground">{artist.topTrack}</strong>
                     </span>
                 </div>
             </HoverCardContent>
@@ -266,30 +370,31 @@ export default function Welcome() {
         <>
             <Head title="Artistas Destacados - LastFM v3" />
 
-            <div className="min-h-dvh bg-[#0a0a0a] text-neutral-200 antialiased selection:bg-red-500/30 selection:text-white flex flex-col justify-between p-4 sm:p-6 lg:p-10 font-sans">
+            <div className="min-h-dvh bg-background text-foreground antialiased selection:bg-red-500/30 flex flex-col justify-between p-4 sm:p-6 lg:p-10 font-sans transition-colors duration-200">
                 
                 {/* Header Superior Limpio (Cero Auth / Cero Login) */}
-                <header className="max-w-5xl mx-auto w-full flex items-center justify-between pb-8 border-b border-neutral-800/80">
+                <header className="max-w-5xl mx-auto w-full flex flex-wrap items-center justify-between gap-4 pb-8 border-b border-border">
                     <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-red-600 to-red-950 flex items-center justify-center text-white shadow-lg shadow-red-950/40 border border-red-500/30">
+                        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-red-600 to-red-900 flex items-center justify-center text-white shadow-md border border-red-500/30">
                             <Disc3 className="size-5 animate-[spin_6s_linear_infinite]" />
                         </div>
                         <div>
                             <div className="flex items-center gap-2">
-                                <h1 className="text-base font-bold text-white tracking-tight">LastFM v3</h1>
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-950/60 text-red-400 border border-red-800/40">
+                                <h1 className="text-base font-bold text-foreground tracking-tight">LastFM v3</h1>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-600 border border-red-500/25">
                                     <Sparkles className="size-2.5" />
                                     Zero-Login
                                 </span>
                             </div>
-                            <p className="text-xs text-neutral-400">Directorio Musical & Métricas de Reproducción</p>
+                            <p className="text-xs text-muted-foreground">Directorio Musical & Métricas de Reproducción</p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-neutral-900 border border-neutral-800 text-neutral-300">
+                    <div className="flex items-center gap-2.5">
+                        <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-card border border-border text-muted-foreground">
                             <span className="size-2 rounded-full bg-emerald-500 animate-pulse"></span>
                             3 Artistas • 12 Fotos
                         </span>
+                        <ColorSchemeToggle />
                     </div>
                 </header>
 
@@ -297,15 +402,15 @@ export default function Welcome() {
                 <main className="max-w-5xl mx-auto w-full my-8 flex-1 flex flex-col justify-center">
                     <div className="mb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
                         <div>
-                            <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2.5">
+                            <h2 className="text-2xl font-bold text-foreground tracking-tight flex items-center gap-2.5">
                                 Artistas Destacados
                             </h2>
-                            <p className="text-sm text-neutral-400 mt-1">
+                            <p className="text-sm text-muted-foreground mt-1">
                                 Pasa el cursor sobre cualquier artista para explorar su galería interactiva de 4 fotografías (HoverCard + Carousel de shadcn/ui).
                             </p>
                         </div>
-                        <div className="flex items-center gap-3 text-xs text-neutral-400 bg-neutral-900/60 px-3 py-1.5 rounded-lg border border-neutral-800">
-                            <TrendingUp className="size-4 text-emerald-400" />
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground bg-card px-3 py-1.5 rounded-lg border border-border">
+                            <TrendingUp className="size-4 text-emerald-500" />
                             <span>Métricas acumuladas de Last.fm</span>
                         </div>
                     </div>
@@ -315,7 +420,7 @@ export default function Welcome() {
                         tabIndex={0} 
                         role="region" 
                         aria-labelledby="artists-table-caption" 
-                        className="w-full overflow-x-auto rounded-2xl border border-neutral-800/90 bg-[#121212] shadow-2xl focus:outline-none focus:ring-2 focus:ring-neutral-700 [container-type:inline-size]"
+                        className="w-full overflow-x-auto rounded-2xl border border-border bg-card shadow-lg focus:outline-none focus:ring-2 focus:ring-ring [container-type:inline-size]"
                     >
                         <table className="w-full text-left text-sm border-collapse">
                             <caption id="artists-table-caption" className="sr-only">
@@ -323,9 +428,9 @@ export default function Welcome() {
                             </caption>
                             
                             {/* Cabecera Sticky */}
-                            <thead className="bg-[#171717] text-neutral-400 text-xs uppercase tracking-wider sticky top-0 z-10 border-b border-neutral-800">
+                            <thead className="bg-card-header text-muted-foreground text-xs uppercase tracking-wider sticky top-0 z-10 border-b border-border">
                                 <tr>
-                                    <th scope="col" className="px-5 py-4 font-semibold text-neutral-300">
+                                    <th scope="col" className="px-5 py-4 font-semibold text-foreground">
                                         Artista (Hover Galería)
                                     </th>
                                     <th scope="col" className="px-5 py-4 font-semibold">
@@ -343,16 +448,16 @@ export default function Welcome() {
                                 </tr>
                             </thead>
 
-                            <tbody className="divide-y divide-neutral-800/60 text-neutral-200">
+                            <tbody className="divide-y divide-border text-foreground">
                                 {ARTISTS.map((artist) => (
                                     <tr 
                                         key={artist.id}
-                                        className="hover:bg-neutral-800/30 transition-colors group"
+                                        className="hover:bg-muted/60 transition-colors group"
                                     >
                                         {/* Row header semántico según guía (th con scope="row") */}
                                         <th 
                                             scope="row" 
-                                            className="px-5 py-4 font-medium text-white whitespace-nowrap"
+                                            className="px-5 py-4 font-medium text-foreground whitespace-nowrap"
                                         >
                                             <ArtistGalleryHoverCard artist={artist} />
                                         </th>
@@ -363,7 +468,7 @@ export default function Welcome() {
                                                 {artist.tags.map((tag) => (
                                                     <span 
                                                         key={tag} 
-                                                        className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-neutral-900 text-neutral-300 border border-neutral-800 group-hover:border-neutral-700 transition-colors"
+                                                        className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-muted text-foreground border border-border transition-colors"
                                                     >
                                                         {tag}
                                                     </span>
@@ -372,19 +477,19 @@ export default function Welcome() {
                                         </td>
 
                                         {/* Origen & Periodo */}
-                                        <td className="px-5 py-4 text-neutral-300 whitespace-nowrap">
+                                        <td className="px-5 py-4 text-foreground whitespace-nowrap">
                                             <div className="flex items-center gap-1.5 text-xs">
-                                                <MapPin className="size-3.5 text-neutral-500 shrink-0" />
+                                                <MapPin className="size-3.5 text-muted-foreground shrink-0" />
                                                 <span>{artist.origin}</span>
                                             </div>
-                                            <div className="text-[11px] text-neutral-500 mt-0.5 pl-5">
+                                            <div className="text-[11px] text-muted-foreground mt-0.5 pl-5">
                                                 {artist.activeYears}
                                             </div>
                                         </td>
 
                                         {/* Top Track */}
                                         <td className="px-5 py-4 whitespace-nowrap">
-                                            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-neutral-900/90 border border-neutral-800 text-xs font-medium text-neutral-200">
+                                            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-muted border border-border text-xs font-medium text-foreground">
                                                 <span className="size-1.5 rounded-full bg-red-500"></span>
                                                 <span>{artist.topTrack}</span>
                                             </div>
@@ -392,11 +497,11 @@ export default function Welcome() {
 
                                         {/* Oyentes / Scrobbles */}
                                         <td className="px-5 py-4 text-right whitespace-nowrap">
-                                            <div className="flex items-center justify-end gap-1.5 text-sm font-semibold text-white">
-                                                <Headphones className="size-3.5 text-neutral-400" />
+                                            <div className="flex items-center justify-end gap-1.5 text-sm font-semibold text-foreground">
+                                                <Headphones className="size-3.5 text-muted-foreground" />
                                                 <span>{artist.listeners}</span>
                                             </div>
-                                            <div className="text-[11px] text-neutral-400 mt-0.5">
+                                            <div className="text-[11px] text-muted-foreground mt-0.5">
                                                 {artist.scrobbles} reproducciones
                                             </div>
                                         </td>
@@ -408,12 +513,12 @@ export default function Welcome() {
                 </main>
 
                 {/* Footer Minimalista */}
-                <footer className="max-w-5xl mx-auto w-full pt-6 border-t border-neutral-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-neutral-500">
-                    <p>LastFM v3 • Arquitectura Zero-Login sin dependencias de autenticación.</p>
+                <footer className="max-w-5xl mx-auto w-full pt-6 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
+                    <p>LastFM v3 • Arquitectura Zero-Login con CSS <code className="font-mono text-foreground">light-dark()</code> nativo.</p>
                     <div className="flex items-center gap-4">
                         <span>shadcn/ui HoverCard + Carousel</span>
                         <span>•</span>
-                        <span>Responsive Table Guide</span>
+                        <span>Dark Mode Guide</span>
                     </div>
                 </footer>
 
