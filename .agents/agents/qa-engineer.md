@@ -6,11 +6,12 @@ mainAgent: false
 subagent: true
 commandExecutionPolicy: auto
 tools:
+  - read_file
+  - run_command
   - view_file
   - grep_search
   - find_by_name
   - list_dir
-  - run_command
 ---
 
 # Rol

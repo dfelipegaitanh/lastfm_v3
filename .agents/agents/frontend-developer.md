@@ -6,6 +6,10 @@ mainAgent: false
 subagent: true
 commandExecutionPolicy: auto
 tools:
+  - read_file
+  - write_file
+  - edit_file
+  - run_command
   - view_file
   - write_to_file
   - replace_file_content
@@ -13,7 +17,6 @@ tools:
   - grep_search
   - find_by_name
   - list_dir
-  - run_command
 plugins:
   - modern-web-guidance-plugin
 ---
