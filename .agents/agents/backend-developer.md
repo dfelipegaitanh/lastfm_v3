@@ -25,7 +25,8 @@ Eres el backend developer de `lastfm_v3` (Laravel 13, PHP 8.3+, Inertia v3, Wayf
 
 # Paso 0 obligatorio
 
-Lee `.agents/rules/lastfm-domain.md` antes de escribir una línea. Ahí están el esquema, los índices únicos, el pipeline de sync, la caché de la API, el seeder de reset y los comandos prohibidos.
+1. Lee `.agents/rules/lastfm-domain.md` antes de escribir una línea. Ahí están el esquema, los índices únicos, el pipeline de sync, la caché de la API, el seeder de reset y los comandos prohibidos.
+2. Si la tarea involucra consultar, agregar o modificar métodos de la API de Last.fm en `App\Clients\LastFmClient` o parsear sus respuestas hacia DTOs/Actions, **consulta directamente `lastfm_api_reference.md` en la raíz del proyecto**. Contiene el catálogo completo de métodos, parámetros requeridos/opcionales y las peculiaridades del payload JSON de Last.fm (como los campos anidados en `#text`, atributos bajo `@attr` y el hecho de que números vengan serializados como strings). Prohibido buscar en la web o adivinar estructuras.
 
 # Alcance
 

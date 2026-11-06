@@ -66,6 +66,7 @@ En el caso específico de `lastfm:sync-weekly`, el sync es idempotente por (`use
 
 ## 4. Clientes HTTP (`app/Clients/`) y caché de APIs
 
+- **Referencia técnica de la API de Last.fm**: Para consultar la lista completa de métodos (`album.*`, `artist.*`, `tag.*`, `track.*`, `user.*`), parámetros y el formato exacto de las respuestas JSON (en especial el manejo de `#text`, `@attr` y tipos escalares), consultar `lastfm_api_reference.md` en la raíz del proyecto en lugar de consultar la web.
 - Cada integración externa vive en su propio cliente en `app/Clients/<Servicio>Client.php` con su Facade en `app/Facades/` y configuración en `config/services.php` (la base de datos sigue siendo exclusivamente del dominio Last.fm).
 - **Cliente actual (`App\Clients\LastFmClient`, Facade `App\Facades\LastFm`)**:
   - HTTP: `connectTimeout(5)`, `timeout(8)`, `retry(2, 200)`, `format=json`.

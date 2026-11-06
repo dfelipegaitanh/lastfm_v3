@@ -7,6 +7,9 @@ namespace App\Console\Commands;
 use App\Actions\LastFm\FetchWeeklyTracksAction;
 use App\Actions\LastFm\PersistWeeklyChartAction;
 use App\Clients\LastFmClient;
+use App\Data\LastFm\LastFmUserData;
+use App\Data\LastFm\WeeklyChartPeriodData;
+use App\Data\LastFm\WeeklyTrackData;
 use App\Facades\LastFm;
 use App\Models\LastFmChart;
 use Exception;
@@ -45,19 +48,19 @@ final class LastFmSyncWeekly extends Command
 
         $this->info('Sincronizando Last.fm para el usuario: '.$user);
 
-        $userData = LastFm::getUserInfo($user);
-
-        $registered = data_get($userData->get('registered'), 'unixtime');
+        $userDto = LastFmUserData::fromApi(LastFm::getUserInfo($user));
+        $registered = $userDto->registeredUnixtime;
         $this->info('Usuario registrado desde: '.$registered);
 
-        $weeklyChartList = LastFm::getWeeklyChartList($user);
-        $chartsToSync = $weeklyChartList->filter(fn ($chart): bool => $chart['to'] >= $registered);
+        $chartsToSync = LastFm::getWeeklyChartList($user)
+            ->map(fn (array $chart): WeeklyChartPeriodData => WeeklyChartPeriodData::fromApi($chart))
+            ->filter(fn (WeeklyChartPeriodData $chart): bool => $chart->to >= $registered);
 
         $existingCharts = LastFmChart::existingCharts($user, $limit);
 
         $start = microtime(true);
         foreach ($chartsToSync as $chart) {
-            $lastFmChart = $existingCharts->get($chart['from']);
+            $lastFmChart = $existingCharts->get($chart->from);
 
             if ($lastFmChart?->synced) {
                 $this->info('Semana ya sincronizada: '.$this->chartPeriod($lastFmChart));
@@ -66,7 +69,7 @@ final class LastFmSyncWeekly extends Command
             }
 
             if (! $lastFmChart) {
-                $lastFmChart = LastFmChart::forChart($chart['from'], $chart['to'], $limit, $user);
+                $lastFmChart = LastFmChart::forChart((string) $chart->from, (string) $chart->to, $limit, $user);
             }
 
             try {
@@ -87,24 +90,20 @@ final class LastFmSyncWeekly extends Command
                 $this->newLine();
 
                 continue;
-
             }
 
             PersistWeeklyChartAction::run($lastFmChart, $weeklyTrackList);
 
             $lastFmChart->markAsSynced();
             $this->renderWeeklyStats($lastFmChart, $weeklyTrackList);
-
         }
 
         $this->info('Tiempo total: '.(microtime(true) - $start).' segundos');
-
     }
 
     private function activateQueryLog(): void
     {
         DB::listen(function ($query): void {
-
             $sql = mb_trim($query->sql);
             $type = mb_strtoupper(strtok($sql, ' ') ?: 'OTHER');
 
@@ -139,30 +138,33 @@ final class LastFmSyncWeekly extends Command
             collect($this->dbQueries)->map(fn ($count, $type): array => [
                 '🗄️ '.$type,
                 $count,
-            ]), 'borderless');
+            ]),
+            'borderless'
+        );
 
         $this->table(
             ['Operación', 'Cantidad'],
-            $apiRows, // ->concat($dbRows)->toArray(),
+            $apiRows,
             'borderless'
         );
         $this->newLine();
-
     }
 
+    /**
+     * @param  Collection<int, WeeklyTrackData>  $weeklyTrackList
+     */
     private function renderWeeklyStats(LastFmChart $lastFmChart, Collection $weeklyTrackList): void
     {
-
         $this->newLine(2);
         $this->warn(sprintf('Semana # %s: ', $lastFmChart->id).sprintf('%s. Songs %d', $this->chartPeriod($lastFmChart), $weeklyTrackList->count()));
 
         $this->table(
             ['Artist', 'Album', 'Track', 'Playcount'],
-            $weeklyTrackList->map(fn ($track): array => [
-                'artist' => $track['artist'],
-                'album' => $track['album'],
-                'track' => $track['track'],
-                'playcount' => $track['playcount'],
+            $weeklyTrackList->map(fn (WeeklyTrackData $track): array => [
+                'artist' => $track->artist,
+                'album' => $track->album,
+                'track' => $track->track,
+                'playcount' => $track->playcount,
             ]),
             'borderless'
         );

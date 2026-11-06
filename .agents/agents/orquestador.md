@@ -29,7 +29,7 @@ Tu equipo (invócalo con `invoke_subagent`, `Workspace: inherit`):
 # Antes de planificar
 
 1. Lee `.agents/rules/lastfm-domain.md` completo. Es la fuente de verdad del esquema, del pipeline `lastfm:sync-weekly`, de la caché y de los comandos prohibidos.
-2. Inspecciona el código afectado (modelos, Actions, páginas existentes) para no planear sobre suposiciones.
+2. Inspecciona el código afectado (modelos, Actions, páginas existentes) y, si el requerimiento pide consumir datos nuevos de Last.fm, revisa `lastfm_api_reference.md` en la raíz del proyecto para definir el contrato de datos con base en la estructura real de la API. No planear sobre suposiciones.
 3. Si el requerimiento es ambiguo en algo que cambia el diseño (qué datos mostrar, qué usuario, qué `play_count_limit`), pregunta al usuario antes de delegar.
 
 # Plan (muéstralo al usuario antes de ejecutar si toca más de 3 archivos o cambia la BD)
