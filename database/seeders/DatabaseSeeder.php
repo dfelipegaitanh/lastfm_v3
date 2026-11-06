@@ -6,6 +6,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Artisan;
 
 final class DatabaseSeeder extends Seeder
 {
@@ -20,5 +21,6 @@ final class DatabaseSeeder extends Seeder
             ResetLastFm::class,
         ]);
 
+        $this->command?->call('cache:clear') ?? Artisan::call('cache:clear');
     }
 }
