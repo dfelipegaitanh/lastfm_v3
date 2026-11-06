@@ -23,6 +23,8 @@ use function sprintf;
 #[Description('Sync weekly data from Last.fm')]
 final class LastFmSyncWeekly extends Command
 {
+    private array $dbQueries = [];
+
     /**
      * Execute the console command.
      */
@@ -37,20 +39,11 @@ final class LastFmSyncWeekly extends Command
             return;
         }
 
-        $dbQueries = [];
-        DB::listen(function ($query) use (&$dbQueries): void {
+        if (config('services.lastfm.show_logs')) {
+            $this->activateQueryLog();
+        }
 
-            $sql = mb_trim($query->sql);
-            $type = mb_strtoupper(strtok($sql, ' ') ?: 'OTHER');
-
-            if (str_contains($sql, '`cache`')) {
-                $type = 'CACHE ' . $type;
-            }
-
-            $dbQueries[$type] = ($dbQueries[$type] ?? 0) + 1;
-        });
-
-        $this->info('Sincronizando Last.fm para el usuario: ' . $user);
+        $this->info('Sincronizando Last.fm para el usuario: '.$user);
 
         $userData = LastFm::getUserInfo($user);
 
@@ -100,7 +93,7 @@ final class LastFmSyncWeekly extends Command
             PersistWeeklyChartAction::run($lastFmChart, $weeklyTrackList);
 
             $lastFmChart->markAsSynced();
-            $this->renderWeeklyStats($lastFmChart, $weeklyTrackList, $dbQueries);
+            $this->renderWeeklyStats($lastFmChart, $weeklyTrackList);
 
         }
 
@@ -108,7 +101,56 @@ final class LastFmSyncWeekly extends Command
 
     }
 
-    public function renderWeeklyStats(LastFmChart $lastFmChart, Collection $weeklyTrackList, array $dbQueries): void
+    private function activateQueryLog(): void
+    {
+        DB::listen(function ($query): void {
+
+            $sql = mb_trim($query->sql);
+            $type = mb_strtoupper(strtok($sql, ' ') ?: 'OTHER');
+
+            if (str_contains($sql, '`cache`')) {
+                $type = 'CACHE '.$type;
+            }
+
+            $this->dbQueries[$type] = ($this->dbQueries[$type] ?? 0) + 1;
+        });
+    }
+
+    private function chartPeriod(LastFmChart $chart): string
+    {
+        return sprintf('%s - %s', $chart->from->format('Y-m-d'), $chart->to->format('Y-m-d'));
+    }
+
+    private function renderLogStats(): void
+    {
+        $log = LastFmClient::getCallLog();
+        $apiCalls = LastFmClient::getCallCount();
+        $dbCalls = array_sum($this->dbQueries);
+
+        $this->info(sprintf('Estadísticas: 📡 %d llamadas a la API | 🗄️ %d consultas a la BD', $apiCalls, $dbCalls));
+
+        $apiRows = $log->countBy('method')->map(fn ($count, $method): array => [
+            '📡 '.$method,
+            $count,
+        ]);
+
+        $this->table(
+            ['Type', 'Count'],
+            collect($this->dbQueries)->map(fn ($count, $type): array => [
+                '🗄️ '.$type,
+                $count,
+            ]), 'borderless');
+
+        $this->table(
+            ['Operación', 'Cantidad'],
+            $apiRows, // ->concat($dbRows)->toArray(),
+            'borderless'
+        );
+        $this->newLine();
+
+    }
+
+    private function renderWeeklyStats(LastFmChart $lastFmChart, Collection $weeklyTrackList): void
     {
 
         $this->newLine(2);
@@ -127,35 +169,8 @@ final class LastFmSyncWeekly extends Command
 
         $this->newLine();
 
-        $log = LastFmClient::getCallLog();
-        $apiCalls = LastFmClient::getCallCount();
-        $dbCalls = array_sum($dbQueries);
-
-        $this->info(sprintf('Estadísticas: 📡 %d llamadas a la API | 🗄️ %d consultas a la BD', $apiCalls, $dbCalls));
-
-        $apiRows = $log->countBy('method')->map(fn ($count, $method): array => [
-            '📡 '.$method,
-            $count,
-        ]);
-
-        $this->table(
-            ['Type', 'Count'],
-            collect($dbQueries)->map(fn ($count, $type): array => [
-                '🗄️ '.$type,
-                $count,
-            ]), 'borderless');
-
-        $this->table(
-            ['Operación', 'Cantidad'],
-            $apiRows, // ->concat($dbRows)->toArray(),
-            'borderless'
-        );
-        $this->newLine();
-
-    }
-
-    private function chartPeriod(LastFmChart $chart): string
-    {
-        return sprintf('%s - %s', $chart->from->format('Y-m-d'), $chart->to->format('Y-m-d'));
+        if (config('services.lastfm.show_logs')) {
+            $this->renderLogStats();
+        }
     }
 }
