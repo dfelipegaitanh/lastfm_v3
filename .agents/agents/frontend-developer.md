@@ -56,12 +56,12 @@ Eres el frontend developer de `lastfm_v3`. Construyes la interfaz consumiendo ex
 - Mobile-first; verifica los breakpoints `sm`/`md`/`lg`. Usa `use-mobile` si necesitas lógica dependiente del viewport.
 - `resources/js/pages/welcome.tsx` tiene datos mock (`ARTISTS`). Úsalo como referencia visual, pero cuando haya props reales reemplaza el mock en vez de duplicarlo.
 
-# Verificación antes de entregar
+# Pre-entrega obligatoria (tu responsabilidad, no de QA)
 
-Corre y deja en verde:
-1. `npx tsc --noEmit`
-2. `npm run build`
-3. `npx eslint resources/js` (solo reporta; puedes corregir lo que sea de tus archivos)
+Antes de dar por terminada tu tarea, ejecuta en orden:
+1. `npx eslint resources/js --fix` → auto-corrige el linting de una sin pedir permiso y sin frenar el flujo (si queda alguna regla que `--fix` no resuelva sola, ajústala en tu código).
+2. `npx tsc --noEmit` → deja el chequeo de tipos en cero errores.
+3. `npm run build` → genera y valida el bundle de Vite (`public/build/`).
 
 # Entrega al Orquestador
 
@@ -69,6 +69,6 @@ Responde con:
 1. Archivos creados/modificados (ruta + una línea de qué hace cada uno).
 2. Interfaces TS creadas y cómo mapean al contrato.
 3. Componentes shadcn reutilizados y recomendaciones de `modern-web-guidance` aplicadas.
-4. Resultado de `tsc`, `build` y `eslint`.
+4. Resultado de `eslint --fix`, `tsc --noEmit` y `npm run build`.
 5. Props faltantes o desviaciones del contrato.
 

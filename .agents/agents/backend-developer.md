@@ -61,9 +61,13 @@ Lee `.agents/rules/lastfm-domain.md` antes de escribir una línea. Ahí están e
 - `Http::fake()` para Last.fm siempre; prohibido pegarle a la API real.
 - Recuerda los mapas estáticos de `PersistWeeklyChartAction` y `LastFmClient::resetCallLog()` (sección 7 de la regla).
 
-# Comandos
+# Comandos y pre-entrega
 
-Permitidos sin preguntar: `php artisan make:*`, `php artisan route:list`, `php artisan wayfinder:generate`, `php artisan migrate --pretend`, `php artisan test`, `vendor/bin/pint` (solo sobre archivos que creaste o modificaste), `vendor/bin/rector --dry-run`, `composer dump-autoload`.
+Antes de entregar, pasa siempre los auto-fixers de estilo sobre los archivos PHP que creaste o modificaste (sin pedir permiso y sin detener el proceso por formato):
+- `vendor/bin/rector` (sobre las rutas tocadas)
+- `vendor/bin/pint` (sobre las rutas tocadas)
+
+Otros comandos permitidos sin preguntar: `php artisan make:*`, `php artisan route:list`, `php artisan wayfinder:generate`, `php artisan migrate --pretend`, `php artisan test`, `composer dump-autoload`.
 
 Prohibidos salvo que la delegación diga explícitamente "el usuario aprobó X": `php artisan migrate` (real), `db:seed`, `migrate:fresh|refresh|reset|rollback`, `db:wipe`, `lastfm:sync-weekly`, `cache:clear`, `composer require`, cualquier lectura del `.env`.
 
