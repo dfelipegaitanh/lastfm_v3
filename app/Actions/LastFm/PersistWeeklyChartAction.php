@@ -35,17 +35,11 @@ final class PersistWeeklyChartAction
         self::$trackTagsSyncedMap = [];
     }
 
-    /**
-     * @param  Collection<int, WeeklyTrackData>  $weeklyTrackList
-     */
     public static function run(LastFmChart $lastFmChart, Collection $weeklyTrackList): void
     {
         app(self::class)->execute($lastFmChart, $weeklyTrackList);
     }
 
-    /**
-     * @param  Collection<int, WeeklyTrackData>  $weeklyTrackList
-     */
     public function execute(LastFmChart $lastFmChart, Collection $weeklyTrackList): void
     {
         $playcountsToInsert = [];
@@ -55,13 +49,11 @@ final class PersistWeeklyChartAction
 
             if (empty(self::$trackTagsSyncedMap[$lastFmTrackId])) {
                 if ($track->tags !== []) {
-                    $tagIds = collect($track->tags)
-                        ->map(fn (string $tagName): int => $this->getCachedTagId($tagName))
-                        ->all();
+                    $tagIds = $this->getTagsIds($track);
 
                     $now = now();
                     DB::table('last_fm_tag_last_fm_track')->insertOrIgnore(
-                        collect($tagIds)->map(fn (int $tagId): array => [
+                        $tagIds->map(fn (int $tagId): array => [
                             'last_fm_tag_id' => $tagId,
                             'last_fm_track_id' => $lastFmTrackId,
                             'created_at' => $now,
@@ -129,5 +121,14 @@ final class PersistWeeklyChartAction
             'name' => $track->track,
             'mbid' => $track->trackMbid,
         ])->id;
+    }
+
+    private function getTagsIds(WeeklyTrackData $track): Collection
+    {
+
+        $tagIds = collect($track->tags)
+            ->map(fn (string $tagName): int => $this->getCachedTagId($tagName));
+
+        return $tagIds;
     }
 }

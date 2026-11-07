@@ -108,6 +108,38 @@ describe('WeeklyTrackData', function (): void {
             ->and($dto->playcount)->toBe(5)
             ->and($dto->rank)->toBe(2);
     });
+
+    test('converts to array and jsonSerialize with complete properties', function (): void {
+        $dto = new WeeklyTrackData(
+            artist: 'Radiohead',
+            artistMbid: 'artist-mbid-123',
+            track: 'Karma Police',
+            trackMbid: 'track-mbid-456',
+            album: 'OK Computer',
+            albumMbid: 'album-mbid-789',
+            playcount: 42,
+            rank: 1,
+            tags: ['alternative rock', 'indie rock'],
+        );
+
+        $expected = [
+            'artist' => 'Radiohead',
+            'artistMbid' => 'artist-mbid-123',
+            'track' => 'Karma Police',
+            'trackMbid' => 'track-mbid-456',
+            'album' => 'OK Computer',
+            'albumMbid' => 'album-mbid-789',
+            'playcount' => 42,
+            'rank' => 1,
+            'tags' => ['alternative rock', 'indie rock'],
+        ];
+
+        expect($dto)->toBeInstanceOf(Illuminate\Contracts\Support\Arrayable::class)
+            ->and($dto)->toBeInstanceOf(JsonSerializable::class)
+            ->and($dto->toArray())->toBe($expected)
+            ->and($dto->jsonSerialize())->toBe($expected)
+            ->and(json_encode($dto))->toBe(json_encode($expected));
+    });
 });
 
 describe('WeeklyChartPeriodData', function (): void {
@@ -126,6 +158,24 @@ describe('WeeklyChartPeriodData', function (): void {
 
         expect($dto->from)->toBe(0)
             ->and($dto->to)->toBe(0);
+    });
+
+    test('converts to array and jsonSerialize with complete properties', function (): void {
+        $dto = new WeeklyChartPeriodData(
+            from: 1108296000,
+            to: 1108900800,
+        );
+
+        $expected = [
+            'from' => 1108296000,
+            'to' => 1108900800,
+        ];
+
+        expect($dto)->toBeInstanceOf(Illuminate\Contracts\Support\Arrayable::class)
+            ->and($dto)->toBeInstanceOf(JsonSerializable::class)
+            ->and($dto->toArray())->toBe($expected)
+            ->and($dto->jsonSerialize())->toBe($expected)
+            ->and(json_encode($dto))->toBe(json_encode($expected));
     });
 });
 
@@ -158,5 +208,25 @@ describe('LastFmUserData', function (): void {
         expect($dto->name)->toBe('johndoe')
             ->and($dto->registeredUnixtime)->toBe(1234567890)
             ->and($dto->playcount)->toBe(1234);
+    });
+
+    test('converts to array and jsonSerialize with complete properties', function (): void {
+        $dto = new LastFmUserData(
+            name: 'svigle',
+            registeredUnixtime: 1108296000,
+            playcount: 98765,
+        );
+
+        $expected = [
+            'name' => 'svigle',
+            'registeredUnixtime' => 1108296000,
+            'playcount' => 98765,
+        ];
+
+        expect($dto)->toBeInstanceOf(Illuminate\Contracts\Support\Arrayable::class)
+            ->and($dto)->toBeInstanceOf(JsonSerializable::class)
+            ->and($dto->toArray())->toBe($expected)
+            ->and($dto->jsonSerialize())->toBe($expected)
+            ->and(json_encode($dto))->toBe(json_encode($expected));
     });
 });

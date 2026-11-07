@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace App\Data\LastFm;
 
+use App\Data\Data;
 use Illuminate\Support\Collection;
 
-final readonly class LastFmUserData
+final readonly class LastFmUserData extends Data
 {
     public function __construct(
         public string $name,

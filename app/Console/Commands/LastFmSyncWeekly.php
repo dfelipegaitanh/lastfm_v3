@@ -22,19 +22,17 @@ use Illuminate\Support\Facades\Log;
 
 use function sprintf;
 
-#[Signature('lastfm:sync-weekly {user?} {--limit=}')]
+#[Signature('lastfm:sync-weekly {user?} {--limit=} {--threshold=}')]
 #[Description('Sync weekly data from Last.fm')]
 final class LastFmSyncWeekly extends Command
 {
     private array $dbQueries = [];
 
-    /**
-     * Execute the console command.
-     */
     public function handle(): void
     {
         $user = $this->argument('user') ?? LastFm::getDefaultUser();
         $limit = (int) ($this->option('limit') ?? config('services.lastfm.top_songs'));
+        $threshold = (int) ($this->option('threshold') ?? 0);
 
         if (! $user) {
             $this->error('No se especificó un usuario');
@@ -56,9 +54,10 @@ final class LastFmSyncWeekly extends Command
             ->map(fn (array $chart): WeeklyChartPeriodData => WeeklyChartPeriodData::fromApi($chart))
             ->filter(fn (WeeklyChartPeriodData $chart): bool => $chart->to >= $registered);
 
-        $existingCharts = LastFmChart::existingCharts($user, $limit);
+        $existingCharts = LastFmChart::existingCharts($user, $limit, $threshold);
 
         $start = microtime(true);
+
         foreach ($chartsToSync as $chart) {
             $lastFmChart = $existingCharts->get($chart->from);
 
@@ -69,11 +68,11 @@ final class LastFmSyncWeekly extends Command
             }
 
             if (! $lastFmChart) {
-                $lastFmChart = LastFmChart::forChart((string) $chart->from, (string) $chart->to, $limit, $user);
+                $lastFmChart = LastFmChart::forChart((string) $chart->from, (string) $chart->to, $limit, $user, $threshold);
             }
 
             try {
-                $weeklyTrackList = FetchWeeklyTracksAction::run($user, $limit, $lastFmChart);
+                $weeklyTrackList = FetchWeeklyTracksAction::run($lastFmChart);
             } catch (Exception $exception) {
                 Log::error($exception->getMessage());
                 $this->error($exception->getMessage());
@@ -85,9 +84,7 @@ final class LastFmSyncWeekly extends Command
 
             if ($weeklyTrackList->isEmpty()) {
                 $lastFmChart->markAsSynced();
-                $this->newLine();
                 $this->error('Semana sin canciones: '.$this->chartPeriod($lastFmChart));
-                $this->newLine();
 
                 continue;
             }

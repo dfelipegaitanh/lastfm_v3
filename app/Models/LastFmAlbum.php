@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['last_fm_artist_id', 'name', 'mbid'])]
+#[Fillable(['last_fm_artist_id', 'name', 'mbid', 'image_url'])]
 #[Hidden(['created_at', 'updated_at'])]
 final class LastFmAlbum extends Model
 {

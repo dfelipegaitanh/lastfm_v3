@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Data\LastFm;
 
-final readonly class WeeklyChartPeriodData
+use App\Data\Data;
+
+final readonly class WeeklyChartPeriodData extends Data
 {
     public function __construct(
         public int $from,
