@@ -31,8 +31,10 @@ final class LastFmSyncWeekly extends Command
     public function handle(): void
     {
         $user = $this->argument('user') ?? LastFm::getDefaultUser();
-        $limit = (int) ($this->option('limit') ?? config('services.lastfm.top_songs'));
         $threshold = (int) ($this->option('threshold') ?? 0);
+        $limit = (!$threshold)
+            ? (int) ($this->option('limit') ?? config('services.lastfm.top_songs'))
+            : 0;
 
         if (! $user) {
             $this->error('No se especificó un usuario');
