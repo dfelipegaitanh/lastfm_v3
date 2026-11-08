@@ -28,7 +28,7 @@ Siete tablas del dominio, todas con prefijo `last_fm_` y modelo `App\Models\Last
 
 | Tabla | Modelo | Columnas | Índices |
 | :--- | :--- | :--- | :--- |
-| `last_fm_charts` | `LastFmChart` | `id`, `from` (string), `to` (string), `user` (string), `synced` (bool, default false), `play_count_limit` (int) | **UNIQUE `lfm_charts_user_from_limit_unique` (`user`, `from`, `play_count_limit`)** |
+| `last_fm_charts` | `LastFmChart` | `id`, `from` (string), `to` (string), `user` (string), `synced` (bool, default false), `play_count_limit` (int), `viral_limit` (int, default 0) | **UNIQUE `lfm_charts_user_from_limit_viral_limit_unique` (`user`, `from`, `play_count_limit`, `viral_limit`)** |
 | `last_fm_artists` | `LastFmArtist` | `id`, `name`, `mbid` (nullable), timestamps | UNIQUE `lfm_artists_name_unique` (`name`) |
 | `last_fm_albums` | `LastFmAlbum` | `id`, `last_fm_artist_id`, `name`, `mbid` (nullable), timestamps | INDEX `lfm_albums_artist_name_index` (`last_fm_artist_id`, `name`) |
 | `last_fm_tracks` | `LastFmTrack` | `id`, `last_fm_artist_id`, `last_fm_album_id`, `name`, `mbid` (nullable), timestamps | INDEX `lfm_tracks_artist_album_name_index` (`last_fm_artist_id`, `last_fm_album_id`, `name`) |
@@ -37,7 +37,7 @@ Siete tablas del dominio, todas con prefijo `last_fm_` y modelo `App\Models\Last
 | `last_fm_tag_last_fm_track` | pivot | `id`, `last_fm_tag_id`, `last_fm_track_id`, timestamps | UNIQUE `lfm_tag_track_unique` (`last_fm_tag_id`, `last_fm_track_id`); FKs con `cascadeOnDelete` |
 
 Claves para no romper nada:
-- **`play_count_limit` es parte de la identidad de una semana.** La misma semana sincronizada con límite 10 y con límite 20 son DOS registros distintos de `last_fm_charts`, con sus propios playcounts. Toda consulta de charts DEBE filtrar por `user` + `play_count_limit` (como hace `LastFmChart::existingCharts()`), o mezclará rankings de límites distintos.
+- **`play_count_limit` y `viral_limit` son parte de la identidad de una semana.** La misma semana sincronizada con límite 10, con límite 20 o con un viral limit son registros distintos de `last_fm_charts`, con sus propios playcounts. Toda consulta de charts DEBE filtrar por `user` + `play_count_limit` + `viral_limit` (como hace `LastFmChart::existingCharts()`), o mezclará rankings de límites distintos.
 - `from` / `to` son columnas VARCHAR. La API entrega unix timestamps, pero el cast `datetime` del modelo los guarda como `Y-m-d H:i:s` (zona horaria de `config('app.timezone')`). Compara siempre vía `$chart->from->timestamp`, nunca comparando strings.
 - Solo el pivot tiene FK reales. `foreignIdFor()` en charts/tracks/albums/playcounts crea la columna SIN constraint: la integridad referencial depende del código.
 - `last_fm_charts` no tiene timestamps (`#[WithoutTimestamps]`).
@@ -55,14 +55,14 @@ Convenciones de modelos: `final class`, `declare(strict_types=1);`, PHP Attribut
 
 ## 3. Anatomía de Comandos de Sincronización (`app/Console/Commands/`)
 
-`LastFmSyncWeekly` (`php artisan lastfm:sync-weekly {user?} {--limit=}`) es el primer comando de sincronización, pero vendrán más comandos (tanto para Last.fm como para otras APIs externas) que compartirán su estructura base:
+`LastFmSyncWeekly` (`php artisan lastfm:sync-weekly {user?} {--limit=} {--viral-limit=}`) es el primer comando de sincronización, pero vendrán más comandos (tanto para Last.fm como para otras APIs externas) que compartirán su estructura base:
 
 1. **Resolución de parámetros**: argumentos/opciones del comando con fallback a `config('services.<servicio>.*')`.
 2. **Telemetría condicional (`show_logs`)**: solo si `config('services.lastfm.show_logs')` (`LASTFM_SHOW_LOGS`) es `true`, se invoca `activateQueryLog()` para enganchar `DB::listen` y acumular conteos en `$this->dbQueries` (separando `CACHE` del resto), y al final de `renderWeeklyStats()` se ejecuta `renderLogStats()` con las tablas de llamadas HTTP (`<Servicio>Client::getCallLog()` / `getCallCount()`) y consultas SQL. Si es `false` (default), solo se imprime la tabla de datos sincronizados sin sobrecargar memoria ni consola.
 3. **Orquestación por Actions**: el comando solo coordina el bucle y el manejo de errores (`try/catch` + `Log::error` sin abortar todo el lote); delega la lectura externa en una Action de *Fetch* (`FetchWeeklyTracksAction`) y la escritura en BD en una Action de *Persist* (`PersistWeeklyChartAction`).
 4. **Persistencia idempotente y sin N+1**: uso de mapas en memoria (`$artistIdMap`, `$albumIdMap`, `$trackIdMap`, `$tagIdMap`) con `firstOrCreate`, `insertOrIgnore` para pivots y `upsert` para métricas (`last_fm_track_playcounts`), marcando el lote como `synced = true` solo al completar.
 
-En el caso específico de `lastfm:sync-weekly`, el sync es idempotente por (`user`, `from`, `play_count_limit`) y filtra semanas desde `registered.unixtime`.
+En el caso específico de `lastfm:sync-weekly`, el sync es idempotente por (`user`, `from`, `play_count_limit`, `viral_limit`) y filtra semanas desde `registered.unixtime`.
 
 ## 4. Clientes HTTP (`app/Clients/`) y caché de APIs
 
@@ -79,7 +79,7 @@ En el caso específico de `lastfm:sync-weekly`, el sync es idempotente por (`use
 - `php artisan db:seed` → `DatabaseSeeder` → `ResetLastFm`.
 - `ResetLastFm` hace `TRUNCATE` de las 7 tablas del dominio dentro de `Schema::withoutForeignKeyConstraints()`. No toca `users` ni la caché.
 - **Regla de mantenimiento**: `ResetLastFm.php` solo se modifica cuando una migración crea o elimina una tabla del dominio (para incluirla o quitarla del `truncate`).
-- Flujo de reset completo: `php artisan db:seed` → `php artisan lastfm:sync-weekly [user] [--limit=N]`.
+- Flujo de reset completo: `php artisan db:seed` → `php artisan lastfm:sync-weekly [user] [--limit=N] [--viral-limit=N]`.
 
 ## 6. Comandos prohibidos sin aprobación explícita del usuario
 

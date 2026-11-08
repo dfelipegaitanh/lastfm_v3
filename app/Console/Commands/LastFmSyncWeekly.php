@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\Log;
 
 use function sprintf;
 
-#[Signature('lastfm:sync-weekly {user?} {--limit=} {--threshold=}')]
+#[Signature('lastfm:sync-weekly {user?} {--limit=} {--viral-limit=}')]
 #[Description('Sync weekly data from Last.fm')]
 final class LastFmSyncWeekly extends Command
 {
@@ -31,8 +31,8 @@ final class LastFmSyncWeekly extends Command
     public function handle(): void
     {
         $user = $this->argument('user') ?? LastFm::getDefaultUser();
-        $threshold = (int) ($this->option('threshold') ?? 0);
-        $limit = (!$threshold)
+        $viralLimit = (int) ($this->option('viral-limit') ?? 0);
+        $limit = ($viralLimit === 0)
             ? (int) ($this->option('limit') ?? config('services.lastfm.top_songs'))
             : 0;
 
@@ -56,7 +56,7 @@ final class LastFmSyncWeekly extends Command
             ->map(fn (array $chart): WeeklyChartPeriodData => WeeklyChartPeriodData::fromApi($chart))
             ->filter(fn (WeeklyChartPeriodData $chart): bool => $chart->to >= $registered);
 
-        $existingCharts = LastFmChart::existingCharts($user, $limit, $threshold);
+        $existingCharts = LastFmChart::existingCharts($user, $limit, $viralLimit);
 
         $start = microtime(true);
 
@@ -70,7 +70,7 @@ final class LastFmSyncWeekly extends Command
             }
 
             if (! $lastFmChart) {
-                $lastFmChart = LastFmChart::forChart((string) $chart->from, (string) $chart->to, $limit, $user, $threshold);
+                $lastFmChart = LastFmChart::forChart((string) $chart->from, (string) $chart->to, $limit, $user, $viralLimit);
             }
 
             try {

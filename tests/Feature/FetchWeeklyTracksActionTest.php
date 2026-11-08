@@ -72,7 +72,7 @@ test('fetches weekly tracks and transforms them into WeeklyTrackData DTOs respec
         'to' => '1736294400',
         'user' => 'svigle',
         'play_count_limit' => 2,
-        'threshold' => 0,
+        'viral_limit' => 0,
     ]);
 
     $tracks = FetchWeeklyTracksAction::run($chart);
@@ -97,7 +97,7 @@ test('fetches weekly tracks and transforms them into WeeklyTrackData DTOs respec
         ->and($second->rank)->toBe(2);
 });
 
-test('filters weekly tracks by threshold', function (): void {
+test('filters weekly tracks by viral limit', function (): void {
     Http::fake([
         '*method=user.getweeklytrackchart*' => Http::response([
             'weeklytrackchart' => [
@@ -153,7 +153,7 @@ test('filters weekly tracks by threshold', function (): void {
         'to' => '1736294400',
         'user' => 'svigle',
         'play_count_limit' => 5,
-        'threshold' => 20,
+        'viral_limit' => 20,
     ]);
 
     $tracks = FetchWeeklyTracksAction::run($chart);

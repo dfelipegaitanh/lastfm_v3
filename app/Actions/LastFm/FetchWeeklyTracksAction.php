@@ -24,9 +24,9 @@ final class FetchWeeklyTracksAction
 
         $weeklyTrackList = LastFm::getWeeklyTrackList($chart->user, $chart->from->timestamp, $chart->to->timestamp);
 
-        $weeklyTrackList = ($chart->threshold)
-        ? $weeklyTrackList->filter(fn (array $track): bool => (int) ($track['playcount'] ?? 0) >= $chart->threshold)
-        : $weeklyTrackList->filter(fn (array $track): bool => (int) ($track['@attr']['rank'] ?? 0) <= $chart->play_count_limit);
+        $weeklyTrackList = ($chart->viral_limit)
+            ? $weeklyTrackList->filter(fn (array $track): bool => (int) ($track['playcount'] ?? 0) >= $chart->viral_limit)
+            : $weeklyTrackList->filter(fn (array $track): bool => (int) ($track['@attr']['rank'] ?? 0) <= $chart->play_count_limit);
 
         return $weeklyTrackList
             ->map(function (array $track): WeeklyTrackData {

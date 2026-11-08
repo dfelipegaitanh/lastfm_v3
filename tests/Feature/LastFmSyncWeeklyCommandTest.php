@@ -74,7 +74,7 @@ test('sync weekly command executes full pipeline using DTOs', function (): void 
     expect(LastFmTrack::where('name', 'Karma Police')->exists())->toBeTrue();
 });
 
-test('sync weekly command accepts threshold option and filters persisted tracks', function (): void {
+test('sync weekly command accepts viral-limit option and filters persisted tracks', function (): void {
     Http::fake([
         '*method=user.getinfo*' => Http::response([
             'user' => [
@@ -144,12 +144,12 @@ test('sync weekly command accepts threshold option and filters persisted tracks'
         ]),
     ]);
 
-    $this->artisan('lastfm:sync-weekly svigle --limit=5 --threshold=20')
+    $this->artisan('lastfm:sync-weekly svigle --limit=5 --viral-limit=20')
         ->assertSuccessful();
 
     $chart = LastFmChart::where('user', 'svigle')->first();
     expect($chart)->not->toBeNull()
-        ->and($chart->threshold)->toBe(20)
+        ->and($chart->viral_limit)->toBe(20)
         ->and((bool) $chart->synced)->toBeTrue();
 
     expect(LastFmTrack::where('name', 'Karma Police')->exists())->toBeTrue()
