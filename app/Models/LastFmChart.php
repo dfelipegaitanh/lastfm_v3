@@ -13,31 +13,23 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Support\Collection;
 
 #[WithoutTimestamps]
-#[Fillable(['from', 'to', 'user', 'synced', 'play_count_limit', 'viral_limit'])]
+#[Fillable(['from', 'to', 'user', 'synced'])]
 #[Hidden(['created_at', 'updated_at'])]
 final class LastFmChart extends Model
 {
-    protected $attributes = [
-        'viral_limit' => 0,
-    ];
-
-    public static function existingCharts(string $user, int $limit, int $viralLimit = 0): Collection
+    public static function existingCharts(string $user): Collection
     {
         return self::where('user', $user)
-            ->where('play_count_limit', $limit)
-            ->where('viral_limit', $viralLimit)
             ->get()
             ->keyBy(fn (LastFmChart $c) => $c->from->timestamp);
     }
 
-    public static function forChart(string $from, string $to, int $limit, string $user, int $viralLimit = 0): static
+    public static function forChart(string $from, string $to, string $user): static
     {
         return self::create([
             'from' => $from,
             'to' => $to,
             'user' => $user,
-            'play_count_limit' => $limit,
-            'viral_limit' => $viralLimit,
         ]);
     }
 
@@ -45,6 +37,11 @@ final class LastFmChart extends Model
     {
         $this->synced = true;
         $this->save();
+    }
+
+    public function presets(): HasMany
+    {
+        return $this->hasMany(LastFmChartPreset::class);
     }
 
     public function trackPlaycounts(): HasMany
@@ -63,8 +60,6 @@ final class LastFmChart extends Model
             'from' => 'datetime:Y-m-d H:i:s',
             'to' => 'datetime:Y-m-d H:i:s',
             'synced' => 'boolean',
-            'play_count_limit' => 'integer',
-            'viral_limit' => 'integer',
         ];
     }
 }

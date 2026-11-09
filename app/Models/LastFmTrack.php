@@ -39,6 +39,16 @@ final class LastFmTrack extends Model
         return $this->hasMany(LastFmTrackPlaycounts::class);
     }
 
+    public function presets(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            LastFmChartPreset::class,
+            'last_fm_chart_preset_track',
+            'last_fm_track_id',
+            'last_fm_chart_preset_id'
+        )->withPivot(['playcount', 'rank'])->withTimestamps();
+    }
+
     public function tags(): BelongsToMany
     {
         return $this->belongsToMany(LastFmTag::class);
