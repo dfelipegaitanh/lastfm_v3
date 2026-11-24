@@ -1,4 +1,5 @@
 import { createInertiaApp } from '@inertiajs/react';
+import type { ReactNode } from 'react';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { initializeTheme } from '@/hooks/use-appearance';
@@ -6,9 +7,9 @@ import { initializeTheme } from '@/hooks/use-appearance';
 const appName = import.meta.env.VITE_APP_NAME || 'LastFM v3';
 
 createInertiaApp({
-    title: (title) => (title ? `${title} - ${appName}` : appName),
+    title: (title: string) => (title ? `${title} - ${appName}` : appName),
     strictMode: true,
-    withApp(app) {
+    withApp(app: ReactNode) {
         return (
             <TooltipProvider delayDuration={0}>
                 {app}
