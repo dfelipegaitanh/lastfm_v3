@@ -1,111 +1,111 @@
-# LastFM v3 — Documentación Técnica y Modelo de Datos
+# LastFM v3 — Technical Documentation & Data Model
 
-Aplicación construida sobre **Laravel 13 (PHP 8.3+)** orientada a la extracción, enriquecimiento y persistencia local del historial de reproducción semanal (*weekly track charts*) de **Last.fm**, con soporte para caché persistente de respuestas de API, deduplicación en memoria y métricas de rendimiento (API + SQL).
+Application built on **Laravel 13 (PHP 8.3+)** focused on extracting, enriching, and locally persisting **Last.fm** weekly listening history (*weekly track charts*), with persistent API response caching, in-memory deduplication, and performance telemetry (API + SQL).
 
 ---
 
-## 1. Análisis Técnico de `LastFmSyncWeekly`
+## 1. Technical Analysis of `LastFmSyncWeekly`
 
-**Archivo:** [`app/Console/Commands/LastFmSyncWeekly.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php)
+**File:** [`app/Console/Commands/LastFmSyncWeekly.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php)
 
-### 1.1 Definición y Firma del Comando
-El comando utiliza atributos nativos de PHP 8 / Laravel 13 para declarar su firma y descripción:
+### 1.1 Command Definition & Signature
+The command uses native PHP 8 / Laravel 13 attributes to declare its signature and description:
 
 ```php
 #[Signature('lastfm:sync-weekly {user?} {--limit=}')]
 #[Description('Sync weekly data from Last.fm')]
 ```
 
-- **`{user?}`** *(opcional)*: Nombre de usuario en Last.fm. Si se omite, se resuelve mediante `LastFm::getDefaultUser()` (`config('services.lastfm.user')`, por defecto `'svigle'`).
-- **`{--limit=}`** *(opcional)*: Cantidad máxima de canciones (*top ranks*) a sincronizar por semana. Si se omite, toma `config('services.lastfm.top_songs')` (por defecto `20`).
+- **`{user?}`** *(optional)*: Last.fm username. If omitted, it resolves via `LastFm::getDefaultUser()` (`config('services.lastfm.user')`, defaults to `'svigle'`).
+- **`{--limit=}`** *(optional)*: Maximum number of tracks (*top ranks*) to sync per week. If omitted, it uses `config('services.lastfm.top_songs')` (defaults to `20`).
 
 ```bash
-# Ejecución con valores por defecto
+# Run with default values
 php artisan lastfm:sync-weekly
 
-# Ejecución especificando usuario y límite de top canciones por semana
+# Run specifying a user and top tracks limit per week
 php artisan lastfm:sync-weekly svigle --limit=50
 ```
 
 ---
 
-### 1.2 Estructuras de Caché en Memoria (Memoización en Tiempo de Ejecución)
-Para evitar el problema $N+1$ contra la base de datos al procesar cientos de semanas donde los mismos artistas, álbumes, canciones y etiquetas se repiten constantemente, el comando mantiene 5 diccionarios asociativos privados en memoria durante toda la vida del proceso CLI:
+### 1.2 In-Memory Cache Structures (Runtime Memoization)
+To avoid the $N+1$ database problem when processing hundreds of weeks where the same artists, albums, tracks, and tags appear repeatedly, the command maintains 5 private associative dictionaries in memory for the lifetime of the CLI process:
 
-| Propiedad | Formato de Llave (`Key`) | Valor Almacenado | Propósito |
+| Property | Key Format | Stored Value | Purpose |
 | :--- | :--- | :--- | :--- |
-| `$artistIdMap` | `"{artist}\|{artist_mbid}"` | `int` (`last_fm_artists.id`) | Evita llamar a `LastFmArtist::firstOrCreate()` más de una vez por artista. |
-| `$albumIdMap` | `"{artist_id}\|{album}"` | `int` (`last_fm_albums.id`) | Evita consultar/crear el mismo álbum para un artista ya resuelto. |
-| `$trackIdMap` | `"{artist_id}\|{album_id}\|{track}"` | `int` (`last_fm_tracks.id`) | Resuelve en $O(1)$ el ID de una canción vista en semanas anteriores. |
-| `$tagIdMap` | `"{tag_name}"` | `int` (`last_fm_tags.id`) | Evita `firstOrCreate()` repetidos sobre etiquetas musicales comunes (*rock*, *indie*, etc.). |
-| `$trackTagsSyncedMap` | `"{track_id}"` | `bool` (`true`) | Garantiza que `syncWithoutDetaching()` sobre la tabla pivote de tags se ejecute solo la primera vez que aparece la canción en la corrida. |
+| `$artistIdMap` | `"{artist}\|{artist_mbid}"` | `int` (`last_fm_artists.id`) | Prevents calling `LastFmArtist::firstOrCreate()` more than once per artist. |
+| `$albumIdMap` | `"{artist_id}\|{album}"` | `int` (`last_fm_albums.id`) | Avoids querying/creating the same album for an already-resolved artist. |
+| `$trackIdMap` | `"{artist_id}\|{album_id}\|{track}"` | `int` (`last_fm_tracks.id`) | Resolves in $O(1)$ the ID of a track seen in previous weeks. |
+| `$tagIdMap` | `"{tag_name}"` | `int` (`last_fm_tags.id`) | Avoids repeated `firstOrCreate()` calls on common music tags (*rock*, *indie*, etc.). |
+| `$trackTagsSyncedMap` | `"{track_id}"` | `bool` (`true`) | Ensures `syncWithoutDetaching()` on the tag pivot table runs only the first time the track appears in the run. |
 
 ---
 
-### 1.3 Flujo de Ejecución Paso a Paso
+### 1.3 Step-by-Step Execution Flow
 
 ```mermaid
 flowchart TD
-    A["Inicio: handle()"] --> B["Resolver user y limit"]
-    B --> C{"¿Existe user?"}
-    C -- No --> D["Error y abortar"]
-    C -- Sí --> E["Registrar listener DB::listen() para telemetría SQL"]
-    E --> F["LastFm::getUserInfo(user) -> obtener registered.unixtime"]
-    F --> G["LastFm::getWeeklyChartList(user) (sin caché)"]
-    G --> H["Filtrar charts donde chart.to >= registered"]
-    H --> I["LastFmChart::existingCharts(user, limit) indexados por from"]
-    I --> J["Iterar cada semana en chartsToSync"]
-    J --> K{"¿Existe en BD y synced == true?"}
-    K -- Sí --> J
-    K -- No --> L["Crear o recuperar LastFmChart (synced = false)"]
-    L --> M["getWeeklyTrackList(): user.getweeklytrackchart + filtro rank <= limit"]
-    M --> N["Por cada track: LastFm::getTrackInfo() -> extraer Álbum y Top Tags"]
-    N --> O{"¿Lista de tracks vacía?"}
-    O -- Sí --> P["markAsSynced() y saltar semana"]
-    O -- No --> Q["persistTrackList(): firstOrCreate con mapas en memoria + sync tags"]
-    Q --> R["Upsert masivo en last_fm_track_playcounts"]
-    R --> S["markAsSynced() + Imprimir tabla CLI y telemetría API/BD"]
+    A["Start: handle()"] --> B["Resolve user and limit"]
+    B --> C{"Does user exist?"}
+    C -- No --> D["Error and abort"]
+    C -- Yes --> E["Register DB::listen() listener for SQL telemetry"]
+    E --> F["LastFm::getUserInfo(user) -> get registered.unixtime"]
+    F --> G["LastFm::getWeeklyChartList(user) (no cache)"]
+    G --> H["Filter charts where chart.to >= registered"]
+    H --> I["LastFmChart::existingCharts(user, limit) indexed by from"]
+    I --> J["Iterate each week in chartsToSync"]
+    J --> K{"Exists in DB and synced == true?"}
+    K -- Yes --> J
+    K -- No --> L["Create or retrieve LastFmChart (synced = false)"]
+    L --> M["getWeeklyTrackList(): user.getweeklytrackchart + filter rank <= limit"]
+    M --> N["For each track: LastFm::getTrackInfo() -> extract Album & Top Tags"]
+    N --> O{"Is track list empty?"}
+    O -- Yes --> P["markAsSynced() and skip week"]
+    O -- No --> Q["persistTrackList(): firstOrCreate with in-memory maps + sync tags"]
+    Q --> R["Bulk upsert into last_fm_track_playcounts"]
+    R --> S["markAsSynced() + Print CLI table & API/DB telemetry"]
     S --> J
 ```
 
-1. **Instrumentación de Base de Datos (`DB::listen`)**:
-   Antes de iniciar, engancha un listener al motor de base de datos que intercepta cada sentencia SQL ejecutada, extrae el primer token (`SELECT`, `INSERT`, `UPDATE`, etc.) y acumula contadores en `$dbQueries` para diagnóstico de rendimiento.
-2. **Validación Temporal del Usuario (`LastFm::getUserInfo`)**:
-   Consulta el método `user.getinfo` de Last.fm y extrae `registered.unixtime`. Esto evita pedir semanas históricas vacías previas a la creación de la cuenta del usuario.
-3. **Obtención del Catálogo de Semanas (`LastFm::getWeeklyChartList`)**:
-   Consulta `user.getweeklychartlist` forzando `cache: false` para obtener siempre la lista actualizada de rangos semanales (`from` y `to` en timestamps Unix) y filtra aquellos donde `to >= $registered`.
-4. **Control de Idempotencia (`LastFmChart::existingCharts`)**:
-   Carga en una sola consulta todas las semanas previamente registradas para la combinación `(user, play_count_limit)` y las indexa por el timestamp `from`. En el bucle principal:
-   - Si la semana existe y `$lastFmChart->synced === true`, se omite sin hacer llamadas HTTP ni escrituras.
-   - Si no existe, se inserta un registro en `last_fm_charts` con `synced = false` mediante `LastFmChart::forChart()`.
-5. **Extracción y Enriquecimiento (`getWeeklyTrackList`)**:
-   - Llama a `LastFm::getWeeklyTrackList($user, $from, $to)` (`user.getweeklytrackchart`).
-   - Filtra los resultados para conservar únicamente las canciones con `@attr.rank <= $limit`.
-   - Como el endpoint de lista semanal de Last.fm **no incluye el álbum ni los tags**, por cada canción filtrada realiza una llamada de enriquecimiento a `LastFm::getTrackInfo($artist, $trackName)` (`track.getinfo`), extrayendo:
-     - `toptags.tag` (lista de etiquetas de la canción).
-     - `album.title` (con fallback a `'Unknown Album'`) y `album.mbid`.
-6. **Persistencia Transaccional por Lote (`persistTrackList`)**:
-   - Resuelve o crea en cascada **Artista → Álbum → Canción** usando los métodos privados `getCachedArtistId()`, `getCachedAlbumId()` y `getCachedTrack()`.
-   - Sincroniza la relación muchos-a-muchos de etiquetas (`tags()->syncWithoutDetaching($tagIds)`) una sola vez por canción durante la ejecución.
-   - Construye el arreglo `$playcountsToInsert` y ejecuta una única operación masiva `LastFmTrackPlaycounts::upsert()` por semana.
-   - Marca la semana como sincronizada (`$lastFmChart->markAsSynced()`) e imprime en consola el listado de canciones junto con el resumen de llamadas HTTP y consultas SQL.
+1. **Database Instrumentation (`DB::listen`)**:
+   Before starting, attaches a listener to the database engine that intercepts every executed SQL statement, extracts the leading token (`SELECT`, `INSERT`, `UPDATE`, etc.), and accumulates counters in `$dbQueries` for performance diagnostics.
+2. **User Timeframe Validation (`LastFm::getUserInfo`)**:
+   Queries Last.fm's `user.getinfo` method and extracts `registered.unixtime`. This avoids requesting empty historical weeks prior to the user's account creation.
+3. **Fetching the Weekly Chart Catalog (`LastFm::getWeeklyChartList`)**:
+   Queries `user.getweeklychartlist` forcing `cache: false` to always obtain the latest list of weekly ranges (`from` and `to` Unix timestamps) and filters out ranges where `to < $registered`.
+4. **Idempotency Control (`LastFmChart::existingCharts`)**:
+   Loads all previously registered weeks for the `(user, play_count_limit)` pair in a single query and indexes them by the `from` timestamp. In the main loop:
+   - If the week exists and `$lastFmChart->synced === true`, it is skipped with zero HTTP calls or DB writes.
+   - If it does not exist, a record is inserted into `last_fm_charts` with `synced = false` via `LastFmChart::forChart()`.
+5. **Extraction & Enrichment (`getWeeklyTrackList`)**:
+   - Calls `LastFm::getWeeklyTrackList($user, $from, $to)` (`user.getweeklytrackchart`).
+   - Filters results to keep only tracks with `@attr.rank <= $limit`.
+   - Since Last.fm's weekly chart endpoint **does not include album or tag metadata**, for each filtered track it performs an enrichment call to `LastFm::getTrackInfo($artist, $trackName)` (`track.getinfo`), extracting:
+     - `toptags.tag` (list of track tags).
+     - `album.title` (falling back to `'Unknown Album'`) and `album.mbid`.
+6. **Batch Transactional Persistence (`persistTrackList`)**:
+   - Resolves or creates **Artist → Album → Track** in cascade using private methods `getCachedArtistId()`, `getCachedAlbumId()`, and `getCachedTrack()`.
+   - Syncs the many-to-many tag relationship (`tags()->syncWithoutDetaching($tagIds)`) only once per track during the execution.
+   - Builds the `$playcountsToInsert` array and executes a single bulk `LastFmTrackPlaycounts::upsert()` per week.
+   - Marks the week as synced (`$lastFmChart->markAsSynced()`) and prints the track list to the console along with HTTP call and SQL query summaries.
 
 ---
 
-## 2. Dependencias del Proyecto
+## 2. Project Dependencies
 
-A continuación se detallan todos los archivos PHP propios del proyecto de los que depende directa o indirectamente `LastFmSyncWeekly`:
+Below are all project-owned PHP files that `LastFmSyncWeekly` directly or indirectly depends on:
 
-### 2.1 Capa de Cliente HTTP, Facade y Proveedor de Servicios
+### 2.1 HTTP Client Layer, Facade & Service Provider
 
 #### [`app/Clients/LastFmClient.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Clients/LastFmClient.php)
-Cliente HTTP encargado de toda la comunicación con la API 2.0 de Audioscrobbler / Last.fm (`http://ws.audioscrobbler.com/2.0/`).
-- **Configuración**: Lee `url`, `key` y `user` desde [`config/services.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/config/services.php) (`services.lastfm.*`).
-- **Caché Permanente (`resolve`)**: Todas las peticiones pasan por `resolve()`, que construye una llave determinista `'lfm.' . md5($method . serialize($params))` y envuelve la llamada en `Cache::rememberForever()`.
-  - Si una canción o artista ya fue consultado en el pasado, `getTrackInfo()` o `getWeeklyTrackList()` se sirven directamente desde la caché local sin tocar la red.
-  - Cuando se pasa `$cache = false` (usado en `getWeeklyChartList()`), invalida la llave con `Cache::forget()` antes de refrescarla.
-- **Telemetría HTTP (`$callLog`)**: Solo cuando el caché falla (*cache miss*) y se invoca `getRequest()`, se registra el método y los parámetros en el arreglo estático `self::$callLog`. Expone `getCallCount()`, `getCallLog()` y `resetCallLog()`.
-- **Endpoints implementados**:
+HTTP client responsible for all communication with the Audioscrobbler / Last.fm 2.0 API (`http://ws.audioscrobbler.com/2.0/`).
+- **Configuration**: Reads `url`, `key`, and `user` from [`config/services.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/config/services.php) (`services.lastfm.*`).
+- **Permanent Cache (`resolve`)**: All requests go through `resolve()`, which builds a deterministic key `'lfm.' . md5($method . serialize($params))` and wraps the call in `Cache::rememberForever()`.
+  - If a track or artist was queried in the past, `getTrackInfo()` or `getWeeklyTrackList()` are served directly from local cache without hitting the network.
+  - When `$cache = false` is passed (used in `getWeeklyChartList()`), it invalidates the key via `Cache::forget()` before refreshing.
+- **HTTP Telemetry (`$callLog`)**: Only on a cache miss when `getRequest()` is invoked are the method and parameters recorded in the static `self::$callLog` array. Exposes `getCallCount()`, `getCallLog()`, and `resetCallLog()`.
+- **Implemented endpoints**:
   - `getUserInfo(string $user)` → `user.getinfo`
   - `getWeeklyChartList(string $user)` → `user.getweeklychartlist`
   - `getWeeklyTrackList(string $user, int $from, int $to)` → `user.getweeklytrackchart`
@@ -113,11 +113,11 @@ Cliente HTTP encargado de toda la comunicación con la API 2.0 de Audioscrobbler
   - `getAlbumInfo(string $artist, string $album)` → `album.getinfo`
 
 #### [`app/Facades/LastFm.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Facades/LastFm.php)
-Facade de Laravel cuyo `getFacadeAccessor()` apunta a `App\Clients\LastFmClient::class`, permitiendo invocar el cliente de forma estática (`LastFm::getUserInfo(...)`, etc.).
+Laravel Facade whose `getFacadeAccessor()` points to `App\Clients\LastFmClient::class`, allowing static client calls (`LastFm::getUserInfo(...)`, etc.).
 
-#### [`app/Providers/LastFmServiceProvider.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Providers/LastFmServiceProvider.php) y [` config/services.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/config/services.php)
-- `LastFmServiceProvider` está registrado en [`bootstrap/providers.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/bootstrap/providers.php) para registrar `LastFmClient` como *singleton* en el contenedor IoC.
-- `config/services.php` centraliza las variables de entorno:
+#### [`app/Providers/LastFmServiceProvider.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Providers/LastFmServiceProvider.php) and [`config/services.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/config/services.php)
+- `LastFmServiceProvider` is registered in [`bootstrap/providers.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/bootstrap/providers.php) to bind `LastFmClient` as a *singleton* in the IoC container.
+- `config/services.php` centralizes environment variables:
   - `LASTFM_API_KEY` (`services.lastfm.key`)
   - `LASTFM_USER` (`services.lastfm.user`, default: `'svigle'`)
   - `LASTFM_API_URL` (`services.lastfm.url`, default: `'http://ws.audioscrobbler.com/2.0/'`)
@@ -125,51 +125,51 @@ Facade de Laravel cuyo `getFacadeAccessor()` apunta a `App\Clients\LastFmClient:
 
 ---
 
-### 2.2 Capa de Modelos Eloquent (`app/Models/`)
+### 2.2 Eloquent Models Layer (`app/Models/`)
 
 - **[`app/Models/LastFmChart.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmChart.php)**:
-  Representa un periodo semanal de escucha para un usuario y un límite de canciones dado.
-  - Desactiva `timestamps` (`#[WithoutTimestamps]`).
-  - Castea `from` y `to` (guardados como timestamps Unix en texto) a objetos `Carbon` con formato `datetime:Y-m-d H:i:s`.
-  - Métodos estáticos de consulta/creación: `existingCharts(string $user, int $limit)` (indexa resultados por `$chart->from->timestamp`) y `forChart(...)`.
-  - Método de estado: `markAsSynced()`.
-  - Relaciones: `trackPlaycounts()` (`HasMany`) y `tracks()` (`HasManyThrough`).
+  Represents a weekly listening period for a given user and track limit.
+  - Disables `timestamps` (`#[WithoutTimestamps]`).
+  - Casts `from` and `to` (stored as Unix timestamp strings) to `Carbon` objects formatted as `datetime:Y-m-d H:i:s`.
+  - Static query/creation helpers: `existingCharts(string $user, int $limit)` (indexes results by `$chart->from->timestamp`) and `forChart(...)`.
+  - State method: `markAsSynced()`.
+  - Relationships: `trackPlaycounts()` (`HasMany`) and `tracks()` (`HasManyThrough`).
 - **[`app/Models/LastFmArtist.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmArtist.php)**:
-  Representa un artista musical (`name`, `mbid`). Define relaciones `albums()` (`HasMany`) y `tracks()` (`HasMany`).
+  Represents a music artist (`name`, `mbid`). Defines `albums()` (`HasMany`) and `tracks()` (`HasMany`).
 - **[`app/Models/LastFmAlbum.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmAlbum.php)**:
-  Representa un álbum (`last_fm_artist_id`, `name`, `mbid`). Define relaciones `artist()` (`BelongsTo`) y `tracks()` (`HasMany`).
+  Represents an album (`last_fm_artist_id`, `name`, `mbid`). Defines `artist()` (`BelongsTo`) and `tracks()` (`HasMany`).
 - **[`app/Models/LastFmTrack.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTrack.php)**:
-  Representa una canción única por artista y álbum (`last_fm_artist_id`, `last_fm_album_id`, `name`, `mbid`).
-  - Incluye el local scope `#[Scope] byArtistName(string $artistName)`.
-  - Relaciones: `artist()` (`BelongsTo`), `album()` (`BelongsTo`), `playcounts()` (`HasMany`), y `tags()` (`BelongsToMany` con `LastFmTag`).
+  Represents a unique track per artist and album (`last_fm_artist_id`, `last_fm_album_id`, `name`, `mbid`).
+  - Includes local scope `#[Scope] byArtistName(string $artistName)`.
+  - Relationships: `artist()` (`BelongsTo`), `album()` (`BelongsTo`), `playcounts()` (`HasMany`), and `tags()` (`BelongsToMany` with `LastFmTag`).
 - **[`app/Models/LastFmTag.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTag.php)**:
-  Catálogo de géneros/etiquetas (`name`). Relación `tracks()` (`BelongsToMany` con `LastFmTrack`).
+  Genre/tag catalog (`name`). Relationship: `tracks()` (`BelongsToMany` with `LastFmTrack`).
 - **[`app/Models/LastFmTrackPlaycounts.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTrackPlaycounts.php)**:
-  Entidad asociativa que registra cuántas veces (`playcount`) y en qué posición (`rank`) se escuchó una canción (`last_fm_track_id`) dentro de una semana específica (`last_fm_chart_id`).
+  Associative entity recording how many times (`playcount`) and at what position (`rank`) a track (`last_fm_track_id`) was played within a specific week (`last_fm_chart_id`).
 
 ---
 
-## 3. Modelo de Base de Datos (`database/`)
+## 3. Database Model (`database/`)
 
-### 3.1 Diagrama Entidad-Relación (ERD)
+### 3.1 Entity-Relationship Diagram (ERD)
 
 ```mermaid
 erDiagram
-    LAST_FM_ARTISTS ||--o{ LAST_FM_ALBUMS : "tiene (last_fm_artist_id)"
-    LAST_FM_ARTISTS ||--o{ LAST_FM_TRACKS : "interpreta (last_fm_artist_id)"
-    LAST_FM_ALBUMS ||--o{ LAST_FM_TRACKS : "contiene (last_fm_album_id)"
-    LAST_FM_CHARTS ||--o{ LAST_FM_TRACK_PLAYCOUNTS : "agrupa (last_fm_chart_id)"
-    LAST_FM_TRACKS ||--o{ LAST_FM_TRACK_PLAYCOUNTS : "registra (last_fm_track_id)"
-    LAST_FM_TRACKS ||--o{ LAST_FM_TAG_LAST_FM_TRACK : "etiquetado en (last_fm_track_id)"
-    LAST_FM_TAGS ||--o{ LAST_FM_TAG_LAST_FM_TRACK : "clasifica en (last_fm_tag_id)"
+    LAST_FM_ARTISTS ||--o{ LAST_FM_ALBUMS : "has (last_fm_artist_id)"
+    LAST_FM_ARTISTS ||--o{ LAST_FM_TRACKS : "performs (last_fm_artist_id)"
+    LAST_FM_ALBUMS ||--o{ LAST_FM_TRACKS : "contains (last_fm_album_id)"
+    LAST_FM_CHARTS ||--o{ LAST_FM_TRACK_PLAYCOUNTS : "groups (last_fm_chart_id)"
+    LAST_FM_TRACKS ||--o{ LAST_FM_TRACK_PLAYCOUNTS : "records (last_fm_track_id)"
+    LAST_FM_TRACKS ||--o{ LAST_FM_TAG_LAST_FM_TRACK : "tagged in (last_fm_track_id)"
+    LAST_FM_TAGS ||--o{ LAST_FM_TAG_LAST_FM_TRACK : "classifies in (last_fm_tag_id)"
 
     LAST_FM_CHARTS {
         bigint id PK
-        string from "Unix timestamp inicio"
-        string to "Unix timestamp fin"
-        int play_count_limit "Top N canciones"
-        string user "Usuario Last.fm"
-        boolean synced "Estado de sincronización"
+        string from "Start Unix timestamp"
+        string to "End Unix timestamp"
+        int play_count_limit "Top N tracks"
+        string user "Last.fm user"
+        boolean synced "Sync status"
     }
 
     LAST_FM_ARTISTS {
@@ -204,7 +204,7 @@ erDiagram
         bigint last_fm_track_id FK
         bigint last_fm_chart_id FK
         int playcount
-        uint rank "Nullable - Posición en la semana"
+        uint rank "Nullable - Weekly rank"
         timestamp created_at
         timestamp updated_at
     }
@@ -227,42 +227,42 @@ erDiagram
 
 ---
 
-### 3.2 Detalle de Migraciones (`database/migrations/`)
+### 3.2 Migration Details (`database/migrations/`)
 
-#### Dominio Last.fm
+#### Last.fm Domain
 1. **`last_fm_charts`**
-   - [`2026_04_13_203621_create_last_fm_charts_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_13_203621_create_last_fm_charts_table.php): Crea la tabla con `id`, `from` (`string`, default `''`), `to` (`string`, default `''`), `user` (`string`, default `''`), `synced` (`boolean`, default `false`). No utiliza `timestamps`.
-   - [`2026_04_16_194635_last_fm_charts_play_count_limit.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_16_194635_last_fm_charts_play_count_limit.php): Añade la columna `play_count_limit` (`integer`) después de `to`.
+   - [`2026_04_13_203621_create_last_fm_charts_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_13_203621_create_last_fm_charts_table.php): Creates the table with `id`, `from` (`string`, default `''`), `to` (`string`, default `''`), `user` (`string`, default `''`), `synced` (`boolean`, default `false`). Does not use `timestamps`.
+   - [`2026_04_16_194635_last_fm_charts_play_count_limit.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_16_194635_last_fm_charts_play_count_limit.php): Adds the `play_count_limit` (`integer`) column after `to`.
 2. **`last_fm_artists`**
-   - [`2026_04_16_202718_create_last_fm_artists_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_16_202718_create_last_fm_artists_table.php): Crea `id`, `name` (`string`), `mbid` (`string`, nullable) y `timestamps()`.
+   - [`2026_04_16_202718_create_last_fm_artists_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_16_202718_create_last_fm_artists_table.php): Creates `id`, `name` (`string`), `mbid` (`string`, nullable), and `timestamps()`.
 3. **`last_fm_albums`**
-   - [`2026_04_19_225629_create_last_fm_albums_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_19_225629_create_last_fm_albums_table.php): Crea `id`, `last_fm_artist_id` (`foreignIdFor(LastFmArtist::class)`), `name` (`string`), `mbid` (`string`, nullable) y `timestamps()`.
+   - [`2026_04_19_225629_create_last_fm_albums_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_19_225629_create_last_fm_albums_table.php): Creates `id`, `last_fm_artist_id` (`foreignIdFor(LastFmArtist::class)`), `name` (`string`), `mbid` (`string`, nullable), and `timestamps()`.
 4. **`last_fm_tracks`**
-   - [`2026_04_16_202751_create_last_fm_tracks_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_16_202751_create_last_fm_tracks_table.php): Crea `id`, `last_fm_artist_id` (`foreignIdFor(LastFmArtist::class)`), `name` (`string`), `mbid` (`string`, nullable) y `timestamps()`.
-   - [`2026_04_19_230958_add_album_to_track_last_fm.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_19_230958_add_album_to_track_last_fm.php): Añade `last_fm_album_id` (`foreignIdFor(LastFmAlbum::class)`) después de `last_fm_artist_id`.
+   - [`2026_04_16_202751_create_last_fm_tracks_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_16_202751_create_last_fm_tracks_table.php): Creates `id`, `last_fm_artist_id` (`foreignIdFor(LastFmArtist::class)`), `name` (`string`), `mbid` (`string`, nullable), and `timestamps()`.
+   - [`2026_04_19_230958_add_album_to_track_last_fm.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_19_230958_add_album_to_track_last_fm.php): Adds `last_fm_album_id` (`foreignIdFor(LastFmAlbum::class)`) after `last_fm_artist_id`.
 5. **`last_fm_track_playcounts`**
-   - [`2026_04_16_204234_create_last_fm_track_playcounts_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_16_204234_create_last_fm_track_playcounts_table.php): Crea `id`, `last_fm_track_id` (`foreignIdFor(LastFmTrack::class)`), `last_fm_chart_id` (`foreignIdFor(LastFmChart::class)`), `playcount` (`integer`) y `timestamps()`.
-   - [`2026_04_17_184026_add_rank_last_fm_track_playcounts.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_17_184026_add_rank_last_fm_track_playcounts.php): Añade `rank` (`unsignedInteger`, nullable) después de `playcount`.
-6. **`last_fm_tags` y tabla pivote `last_fm_tag_last_fm_track`**
-   - [`2026_06_15_030723_create_last_fm_tags_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_06_15_030723_create_last_fm_tags_table.php): Crea `id`, `name` (`string`) y `timestamps()`.
-   - [`2026_06_15_031109_create_last_fm_tag_last_fm_track_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_06_15_031109_create_last_fm_tag_last_fm_track_table.php): Crea la tabla pivote con llaves foráneas explícitas (`constrained()->cascadeOnDelete()`) hacia `last_fm_tags` y `last_fm_tracks`.
+   - [`2026_04_16_204234_create_last_fm_track_playcounts_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_16_204234_create_last_fm_track_playcounts_table.php): Creates `id`, `last_fm_track_id` (`foreignIdFor(LastFmTrack::class)`), `last_fm_chart_id` (`foreignIdFor(LastFmChart::class)`), `playcount` (`integer`), and `timestamps()`.
+   - [`2026_04_17_184026_add_rank_last_fm_track_playcounts.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_17_184026_add_rank_last_fm_track_playcounts.php): Adds `rank` (`unsignedInteger`, nullable) after `playcount`.
+6. **`last_fm_tags` and pivot table `last_fm_tag_last_fm_track`**
+   - [`2026_06_15_030723_create_last_fm_tags_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_06_15_030723_create_last_fm_tags_table.php): Creates `id`, `name` (`string`), and `timestamps()`.
+   - [`2026_06_15_031109_create_last_fm_tag_last_fm_track_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_06_15_031109_create_last_fm_tag_last_fm_track_table.php): Creates the pivot table with explicit foreign keys (`constrained()->cascadeOnDelete()`) referencing `last_fm_tags` and `last_fm_tracks`.
 
-#### Infraestructura y Autenticación
-- [`0001_01_01_000001_create_cache_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/0001_01_01_000001_create_cache_table.php): Crea la tabla `cache` donde `LastFmClient` almacena de forma permanente (`Cache::rememberForever`) los payloads JSON de Last.fm bajo el prefijo `lfm.<md5>`.
-- [`0001_01_01_000000_create_users_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/0001_01_01_000000_create_users_table.php) y [`2026_04_25_190307_add_two_factor_columns_to_users_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_25_190307_add_two_factor_columns_to_users_table.php): Tablas de usuarios, sesiones y 2FA (Laravel Fortify).
-- [`0001_01_01_000002_create_jobs_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/0001_01_01_000002_create_jobs_table.php): Tablas para colas de trabajo (`jobs`, `job_batches`, `failed_jobs`).
+#### Infrastructure & Authentication
+- [`0001_01_01_000001_create_cache_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/0001_01_01_000001_create_cache_table.php): Creates the `cache` table where `LastFmClient` permanently stores (`Cache::rememberForever`) Last.fm JSON payloads under the `lfm.<md5>` prefix.
+- [`0001_01_01_000000_create_users_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/0001_01_01_000000_create_users_table.php) and [`2026_04_25_190307_add_two_factor_columns_to_users_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_25_190307_add_two_factor_columns_to_users_table.php): Users, sessions, and 2FA tables (Laravel Fortify).
+- [`0001_01_01_000002_create_jobs_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/0001_01_01_000002_create_jobs_table.php): Queue tables (`jobs`, `job_batches`, `failed_jobs`).
 
 ### 3.3 Seeders (`database/seeders/`)
-- **[`ResetLastFm.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/seeders/ResetLastFm.php)**: Seeder utilitario invocado por [`DatabaseSeeder.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/seeders/DatabaseSeeder.php) que deshabilita temporalmente las restricciones de llaves foráneas (`Schema::withoutForeignKeyConstraints`) y ejecuta `truncate()` sobre las 7 tablas del dominio de Last.fm (`last_fm_charts`, `last_fm_artists`, `last_fm_tracks`, `last_fm_track_playcounts`, `last_fm_albums`, `last_fm_tags` y `last_fm_tag_last_fm_track`), dejando intacta la tabla `cache` para poder re-poblar la base de datos relacional en segundos sin volver a llamar a la API de Last.fm.
+- **[`ResetLastFm.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/seeders/ResetLastFm.php)**: Utility seeder invoked by [`DatabaseSeeder.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/seeders/DatabaseSeeder.php) that temporarily disables foreign key constraints (`Schema::withoutForeignKeyConstraints`) and runs `truncate()` across all 7 Last.fm domain tables (`last_fm_charts`, `last_fm_artists`, `last_fm_tracks`, `last_fm_track_playcounts`, `last_fm_albums`, `last_fm_tags`, and `last_fm_tag_last_fm_track`), leaving the `cache` table intact so the relational database can be repopulated in seconds without calling the Last.fm API again.
 
 ---
 
-## 4. Auditoría Técnica y Observaciones de Arquitectura
+## 4. Technical Audit & Architectural Notes
 
-Durante la validación cruzada entre `LastFmSyncWeekly`, los modelos Eloquent y las migraciones en `database/`, se identificaron los siguientes puntos técnicos a tener en cuenta:
+During cross-validation between `LastFmSyncWeekly`, Eloquent models, and migrations in `database/`, the following technical points were identified:
 
-1. **Índice Único Faltante en `last_fm_track_playcounts` para `upsert()`**:
-   - En [`LastFmSyncWeekly.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php#L270-L274) se ejecuta:
+1. **Missing Unique Index on `last_fm_track_playcounts` for `upsert()`**:
+   - In [`LastFmSyncWeekly.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php#L270-L274), the following is executed:
      ```php
      LastFmTrackPlaycounts::upsert(
          $playcountsToInsert,
@@ -270,69 +270,69 @@ Durante la validación cruzada entre `LastFmSyncWeekly`, los modelos Eloquent y 
          ['playcount', 'rank']
      );
      ```
-   - La tabla `last_fm_track_playcounts` no define un `$table->unique(['last_fm_chart_id', 'last_fm_track_id'])`. En motores como SQLite o PostgreSQL esto provoca un error SQL en el `ON CONFLICT`, y en MySQL/MariaDB impide que `ON DUPLICATE KEY UPDATE` detecte colisiones sobre esa dupla, insertando filas duplicadas si se re-ejecuta una semana parcial.
-2. **Namespace Incorrecto en `LastFmServiceProvider`**:
-   - En [`app/Providers/LastFmServiceProvider.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Providers/LastFmServiceProvider.php#L7) se importa `App\Services\LastFmClient` (inexistente) en lugar de `App\Clients\LastFmClient`. Como resultado, el singleton registrado en el provider nunca se utiliza y Laravel instancia `App\Clients\LastFmClient` como clase nueva por auto-wiring cada vez que el Facade lo resuelve.
-3. **Llaves Foráneas Implícitas en Relaciones `BelongsTo` y `HasManyThrough`**:
-   - En [`LastFmAlbum::artist()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmAlbum.php#L17-L20), [`LastFmTrack::artist()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTrack.php#L24-L27) y [`LastFmTrack::album()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTrack.php#L19-L22), Eloquent deduce el nombre de la llave foránea a partir del nombre del método (`artist_id` y `album_id`), pero las columnas reales en base de datos son `last_fm_artist_id` y `last_fm_album_id`. Se debe especificar explícitamente el segundo parámetro (`$this->belongsTo(LastFmArtist::class, 'last_fm_artist_id')`).
-   - En [`LastFmChart::tracks()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmChart.php#L49-L52), la relación `hasManyThrough` requiere declarar las llaves explícitas o reemplazarse por `belongsToMany(LastFmTrack::class, 'last_fm_track_playcounts')->withPivot(['playcount', 'rank'])`.
-4. **Inicialización de `$tags` en `getWeeklyTrackList()`**:
-   - En [`LastFmSyncWeekly.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php#L213-L233), la variable `$tags` solo se define dentro del `if ($artist && $trackName)`. Si un registro del chart llegase sin artista o nombre de canción, la línea `'tags' => $tags->toArray()` lanzaría una excepción por variable indefinida.
+   - The `last_fm_track_playcounts` table does not define `$table->unique(['last_fm_chart_id', 'last_fm_track_id'])`. On engines like SQLite or PostgreSQL this triggers an SQL error in `ON CONFLICT`, and on MySQL/MariaDB it prevents `ON DUPLICATE KEY UPDATE` from detecting collisions on that pair, inserting duplicate rows if a partial week is re-run.
+2. **Incorrect Namespace in `LastFmServiceProvider`**:
+   - In [`app/Providers/LastFmServiceProvider.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Providers/LastFmServiceProvider.php#L7), `App\Services\LastFmClient` (non-existent) is imported instead of `App\Clients\LastFmClient`. As a result, the singleton registered in the provider is never used and Laravel instantiates `App\Clients\LastFmClient` as a fresh class via auto-wiring every time the Facade resolves it.
+3. **Implicit Foreign Keys in `BelongsTo` and `HasManyThrough` Relationships**:
+   - In [`LastFmAlbum::artist()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmAlbum.php#L17-L20), [`LastFmTrack::artist()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTrack.php#L24-L27), and [`LastFmTrack::album()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTrack.php#L19-L22), Eloquent infers the foreign key name from the method name (`artist_id` and `album_id`), whereas the actual database columns are `last_fm_artist_id` and `last_fm_album_id`. The second parameter must be specified explicitly (`$this->belongsTo(LastFmArtist::class, 'last_fm_artist_id')`).
+   - In [`LastFmChart::tracks()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmChart.php#L49-L52), the `hasManyThrough` relationship requires explicit keys or should be replaced with `belongsToMany(LastFmTrack::class, 'last_fm_track_playcounts')->withPivot(['playcount', 'rank'])`.
+4. **Initialization of `$tags` in `getWeeklyTrackList()`**:
+   - In [`LastFmSyncWeekly.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php#L213-L233), `$tags` is only defined inside `if ($artist && $trackName)`. If a chart entry ever arrived without an artist or track name, `'tags' => $tags->toArray()` would throw an undefined variable exception.
 
 ---
 
-## 5. Hoja de Ruta y Plan de Evolución (Prioridad #1: Estadísticas Mensuales/Anuales y Motor de Tags + Deezer + Frontend Zero-Login)
+## 5. Roadmap & Evolution Plan (Priority #1: Monthly/Yearly Stats & Tag Engine + Deezer + Zero-Login Frontend)
 
-Esta sección documenta el plan técnico detallado, priorizando como **primer entregable crítico** el motor de **estadísticas mensuales, anuales y por géneros/tags** (ej. *"Las 10 mejores canciones de Metal del año 2022"*), seguido por el generador de playlists en **Deezer** (`https://developers.deezer.com/api`) y el frontend en **React 19 + Inertia v3** sin login.
-
----
-
-### 5.1 Fase 0: Blindaje de la Base Actual (Fixes Obligatorios)
-
-1. **Índice único en `last_fm_track_playcounts`**: Agregar `$table->unique(['last_fm_chart_id', 'last_fm_track_id'])` en una migración para que `LastFmTrackPlaycounts::upsert()` sea idempotente y no duplique filas ni falle en SQLite/PostgreSQL.
-2. **Corrección de [`LastFmServiceProvider.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Providers/LastFmServiceProvider.php)**: Cambiar `use App\Services\LastFmClient;` por `use App\Clients\LastFmClient;`.
-3. **Corrección de llaves foráneas en Modelos Eloquent**: Especificar `'last_fm_artist_id'` y `'last_fm_album_id'` en los `belongsTo()` de [`LastFmAlbum`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmAlbum.php) y [`LastFmTrack`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTrack.php), y reemplazar `LastFmChart::tracks()` por `belongsToMany(LastFmTrack::class, 'last_fm_track_playcounts')->withPivot(['playcount', 'rank'])`.
-4. **Inicialización segura de `$tags` y caché en RAM de `getTrackInfo`**: Declarar `$tags = collect();` antes del condicional en [`LastFmSyncWeekly::getWeeklyTrackList()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php#L210-L221) y memoizar la respuesta de `LastFm::getTrackInfo()` en un arreglo en memoria `$this->trackInfoMap` para no consultar ni deserializar desde la tabla `cache` la misma canción decenas de veces cuando se repite a lo largo de los años.
+This section documents the detailed technical plan, prioritizing as the **first critical deliverable** the **monthly, yearly, and tag/genre statistics engine** (e.g., *"Top 10 Metal tracks of 2022"*), followed by the **Deezer** playlist generator (`https://developers.deezer.com/api`) and the zero-login **React 19 + Inertia v3** frontend.
 
 ---
 
-### 5.2 Fase 1 (PRIORIDAD #1): Arquitectura de Estadísticas Mensuales, Anuales y por Tags usando `user.getWeeklyTrackChart`
+### 5.1 Phase 0: Hardening the Current Foundation (Mandatory Fixes)
 
-#### 1. El Secreto de `user.getWeeklyTrackChart` (Probado en vivo contra la API de Last.fm)
-Aunque la documentación oficial de [`user.getWeeklyTrackChart`](https://www.last.fm/api/show/user.getWeeklyTrackChart) sugiere usar los rangos de 7 días de `user.getWeeklyChartList`, **a nivel interno el endpoint acepta CUALQUIER par de timestamps Unix (`from` y `to`) arbitrarios y un parámetro opcional `limit`**:
+1. **Unique index on `last_fm_track_playcounts`**: Add `$table->unique(['last_fm_chart_id', 'last_fm_track_id'])` in a migration so `LastFmTrackPlaycounts::upsert()` is idempotent and neither duplicates rows nor fails on SQLite/PostgreSQL.
+2. **Fix [`LastFmServiceProvider.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Providers/LastFmServiceProvider.php)**: Change `use App\Services\LastFmClient;` to `use App\Clients\LastFmClient;`.
+3. **Fix foreign keys in Eloquent Models**: Specify `'last_fm_artist_id'` and `'last_fm_album_id'` in the `belongsTo()` calls of [`LastFmAlbum`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmAlbum.php) and [`LastFmTrack`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTrack.php), and replace `LastFmChart::tracks()` with `belongsToMany(LastFmTrack::class, 'last_fm_track_playcounts')->withPivot(['playcount', 'rank'])`.
+4. **Safe initialization of `$tags` and in-RAM caching of `getTrackInfo`**: Declare `$tags = collect();` before the conditional in [`LastFmSyncWeekly::getWeeklyTrackList()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php#L210-L221) and memoize `LastFm::getTrackInfo()` responses in an in-memory `$this->trackInfoMap` array so the same track is not queried or deserialized from the `cache` table dozens of times as it repeats across years.
 
-- **Corte Anual Exacto (1 sola petición HTTP por año)**:
-  Enviando `from = 1640995200` (`2022-01-01 00:00:00 UTC`) y `to = 1672531199` (`2022-12-31 23:59:59 UTC`), Last.fm calcula y devuelve en una sola llamada hasta las **1,000 canciones más escuchadas de todo el 2022** con sus `playcount` y `rank` exactos del año.
-- **Corte Mensual Exacto (1 sola petición HTTP por mes)**:
-  Enviando `from = 1651363200` (`2022-05-01 00:00:00 UTC`) y `to = 1654041599` (`2022-05-31 23:59:59 UTC`), devuelve en una sola llamada el ranking exacto de **Mayo de 2022** (sin problemas de semanas partidas ni sesgos de corte semanal).
-- **Parámetro `limit` soportado en la API**:
-  Además de filtrar localmente, `user.getweeklytrackchart` acepta `limit=N` en los query params si se desea limitar el payload desde origen, o sin `limit` para recibir hasta 1,000 tracks del periodo.
+---
 
-#### 2. Adaptación Mínima en `last_fm_charts`: Columna `type` (`yearly` | `monthly` | `weekly` | `custom`)
-Tu tabla actual `last_fm_charts` (`from`, `to`, `play_count_limit`, `user`, `synced`) **ya tiene la estructura perfecta** para guardar tanto años completos como meses o semanas:
-- Solo agregamos la columna `type` (`string`, indexada, default `'weekly'`, con valores `'yearly'`, `'monthly'`, `'weekly'`, `'custom'`) y opcionalmente `year` (`smallint`) y `month` (`tinyint`, nullable) para búsquedas legibles.
-- Así, el año `2022` es simplemente un registro en `last_fm_charts` con:
+### 5.2 Phase 1 (PRIORITY #1): Monthly, Yearly & Tag Statistics Architecture using `user.getWeeklyTrackChart`
+
+#### 1. The Secret of `user.getWeeklyTrackChart` (Live-Tested Against the Last.fm API)
+Although the official [`user.getWeeklyTrackChart`](https://www.last.fm/api/show/user.getWeeklyTrackChart) documentation suggests using the 7-day ranges from `user.getWeeklyChartList`, **internally the endpoint accepts ANY arbitrary pair of Unix timestamps (`from` and `to`) plus an optional `limit` parameter**:
+
+- **Exact Yearly Slice (1 HTTP request per year)**:
+  Sending `from = 1640995200` (`2022-01-01 00:00:00 UTC`) and `to = 1672531199` (`2022-12-31 23:59:59 UTC`), Last.fm computes and returns in a single call up to the **top 1,000 most-played tracks of all of 2022** with their exact yearly `playcount` and `rank`.
+- **Exact Monthly Slice (1 HTTP request per month)**:
+  Sending `from = 1651363200` (`2022-05-01 00:00:00 UTC`) and `to = 1654041599` (`2022-05-31 23:59:59 UTC`), it returns in a single call the exact ranking for **May 2022** (with no split-week issues or weekly-boundary bias).
+- **`limit` parameter supported by the API**:
+  In addition to local filtering, `user.getweeklytrackchart` accepts `limit=N` in query params to cap the payload at the source, or without `limit` to receive up to 1,000 tracks for the period.
+
+#### 2. Minimal Adaptation in `last_fm_charts`: `type` Column (`yearly` | `monthly` | `weekly` | `custom`)
+Your current `last_fm_charts` table (`from`, `to`, `play_count_limit`, `user`, `synced`) **already has the ideal structure** to store full years, months, and weeks alike:
+- Simply add the `type` column (`string`, indexed, default `'weekly'`, values `'yearly'`, `'monthly'`, `'weekly'`, `'custom'`) and optionally `year` (`smallint`) and `month` (`tinyint`, nullable) for readable queries.
+- Thus, the year `2022` is simply a record in `last_fm_charts` with:
   - `type = 'yearly'`, `year = 2022`, `month = null`, `from = '1640995200'`, `to = '1672531199'`.
-- Y Mayo de `2022` es un registro en `last_fm_charts` con:
+- And May `2022` is a record in `last_fm_charts` with:
   - `type = 'monthly'`, `year = 2022`, `month = 5`, `from = '1651363200'`, `to = '1654041599'`.
 
-#### 3. Resolución del Caso Complejo de Tags: *"Las 10 mejores canciones de Metal del año 2022"*
-Gracias a que `user.getWeeklyTrackChart` nos entrega hasta **1,000 canciones del año 2022 en 1 sola llamada**, para responder *"Top 10 de Metal del 2022"* ya no hay que sumar semanas: basta con filtrar las canciones del chart anual `2022` por sus tags.
-Para que el filtro de tags sea infalible, resolvemos 3 problemas reales de los metadatos de Last.fm:
+#### 3. Solving the Complex Tag Case: *"Top 10 Metal Tracks of 2022"*
+Because `user.getWeeklyTrackChart` gives us up to **1,000 tracks from 2022 in a single call**, answering *"Top 10 Metal of 2022"* no longer requires summing weeks: we just filter the `2022` yearly chart's tracks by their tags.
+To make tag filtering rock-solid, we solve 3 real-world Last.fm metadata issues:
 
-1. **Si pides Top 10 de un Tag específico en un Año, necesitas un `play_count_limit` amplio en ese Año**:
-   Si tus primeras 50 canciones del 2022 fueron K-Pop o Indie y el Metal empieza a aparecer en el puesto #55 del año, sincronizar el año 2022 con `--limit=20` no alcanzaría a capturar las 10 canciones de Metal.
-   - **Solución**: Para los charts `yearly` y `monthly` sincronizamos con un límite amplio (ej. `--limit=250` o `--limit=500`), y optimizamos [`LastFmSyncWeekly`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php) para que **solo consulte `LastFm::getTrackInfo()` cuando la canción no exista aún en `last_fm_tracks`**.
-2. **Fragmentación en Subgéneros (`metal` vs `thrash metal`, `progressive metal`, `heavy metal`, `death metal`)**:
-   - **Solución**: Búsqueda por **Familia de Tag** (`tg.name = 'metal' OR tg.name LIKE '%metal%'`) + columna `weight` (`unsignedTinyInteger`, default `100`) en `last_fm_tag_last_fm_track` (que guarda el `count` `1..100` devuelto por `track.getInfo` en `toptags.tag`) para descartar tags irrelevantes (`weight < 20`).
-3. **Canciones Huérfanas de Tags en `track.getInfo`**:
-   Cuando una canción de álbum devuelve `toptags.tag = []` vacío en `track.getInfo`, el sincronizador hace fallback automático a **`artist.getTopTags`** (cacheado una sola vez por artista) y hereda el Top 5 de tags del artista a la canción.
+1. **Requesting a Top 10 for a specific Tag in a Year requires a wide `play_count_limit` for that Year**:
+   If your top 50 tracks of 2022 were K-Pop or Indie and Metal only starts appearing at #55 for the year, syncing 2022 with `--limit=20` would miss those 10 Metal tracks.
+   - **Solution**: For `yearly` and `monthly` charts, we sync with a wide limit (e.g. `--limit=250` or `--limit=500`), and optimize [`LastFmSyncWeekly`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php) so it **only queries `LastFm::getTrackInfo()` when the track does not yet exist in `last_fm_tracks`**.
+2. **Subgenre Fragmentation (`metal` vs `thrash metal`, `progressive metal`, `heavy metal`, `death metal`)**:
+   - **Solution**: **Tag Family** matching (`tg.name = 'metal' OR tg.name LIKE '%metal%'`) + a `weight` column (`unsignedTinyInteger`, default `100`) on `last_fm_tag_last_fm_track` (storing the `count` `1..100` returned by `track.getInfo` in `toptags.tag`) to discard irrelevant tags (`weight < 20`).
+3. **Tracks Missing Tags in `track.getInfo`**:
+   When an album track returns an empty `toptags.tag = []` in `track.getInfo`, the syncer automatically falls back to **`artist.getTopTags`** (cached once per artist) and inherits the artist's Top 5 tags onto the track.
 
-#### 4. Consulta SQL Directa sobre el Chart Anual / Mensual (Cero sumas pesadas, Cero duplicados)
-Al tener el chart anual de 2022 sincronizado en `last_fm_charts`, sacar *"Las 10 mejores de Metal de 2022"* es una consulta directa sobre ese único `last_fm_chart_id` usando `WHERE EXISTS` (para no duplicar filas si una canción tiene varios subgéneros de metal):
+#### 4. Direct SQL Query on the Yearly / Monthly Chart (Zero Heavy Sums, Zero Duplicates)
+Once the 2022 yearly chart is synced in `last_fm_charts`, getting *"Top 10 Metal tracks of 2022"* is a direct query against that single `last_fm_chart_id` using `WHERE EXISTS` (to avoid duplicate rows when a track has multiple metal subgenres):
 
 ```sql
--- "Top 10 canciones de Metal del año 2022" leyendo directo el Chart Anual de 2022
+-- "Top 10 Metal tracks of 2022" reading directly from the 2022 Yearly Chart
 SELECT
     tp.rank AS overall_year_rank,
     t.id,
@@ -347,7 +347,7 @@ INNER JOIN last_fm_artists ar ON ar.id = t.last_fm_artist_id
 INNER JOIN last_fm_albums al ON al.id = t.last_fm_album_id
 WHERE c.user = :user
   AND c.type = 'yearly'
-  AND c.year = 2022 -- (O c.type = 'monthly' AND c.year = 2022 AND c.month = 5)
+  AND c.year = 2022 -- (Or c.type = 'monthly' AND c.year = 2022 AND c.month = 5)
   AND EXISTS (
       SELECT 1
       FROM last_fm_tag_last_fm_track tt
@@ -362,68 +362,68 @@ LIMIT 10;
 
 ---
 
-### 5.3 Fase 2 (PRIORIDAD #1): Comandos Artisan de Sincronización Anual, Mensual y Rankings por Tags
+### 5.3 Phase 2 (PRIORITY #1): Artisan Commands for Yearly/Monthly Sync & Tag Rankings
 
-Refactorizaremos la lógica común de [`LastFmSyncWeekly.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php) en un servicio/acción reutilizable (`App\Actions\SyncLastFmChartRange`) que recibe cualquier `(user, from, to, type, limit)` e impulsa estos comandos:
+We will refactor the shared logic from [`LastFmSyncWeekly.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php) into a reusable service/action (`App\Actions\SyncLastFmChartRange`) that accepts any `(user, from, to, type, limit)` and powers these commands:
 
-#### 1. `lastfm:sync-yearly {user?} {--year=} {--limit=250} {--force}` *(Prioridad #1)*
-- Calcula desde el año de registro del usuario (`registered.unixtime`) hasta el año actual (o únicamente el `--year=2022` indicado).
-- Por cada año genera los timestamps exactos `YYYY-01-01 00:00:00 UTC` y `YYYY-12-31 23:59:59 UTC`.
-- Llama a `LastFm::getWeeklyTrackList($user, $from, $to)` y persiste el chart con `type = 'yearly'` y `year = YYYY`.
-- Sincronizar 10 años completos toma **solo 10 llamadas a `user.getweeklytrackchart`**.
+#### 1. `lastfm:sync-yearly {user?} {--year=} {--limit=250} {--force}` *(Priority #1)*
+- Computes the range from the user's registration year (`registered.unixtime`) to the current year (or only the specified `--year=2022`).
+- For each year, generates exact timestamps `YYYY-01-01 00:00:00 UTC` and `YYYY-12-31 23:59:59 UTC`.
+- Calls `LastFm::getWeeklyTrackList($user, $from, $to)` and persists the chart with `type = 'yearly'` and `year = YYYY`.
+- Syncing 10 full years takes **only 10 calls to `user.getweeklytrackchart`**.
 
-#### 2. `lastfm:sync-monthly {user?} {--year=} {--month=} {--limit=100} {--force}` *(Prioridad #1)*
-- Recorre los meses de un año (`--year=2022`), un mes específico (`--year=2022 --month=5`), o todo el historial mensual del usuario.
-- Calcula `startOfMonth()->timestamp` y `endOfMonth()->timestamp` en UTC.
-- Llama a `LastFm::getWeeklyTrackList($user, $from, $to)` y persiste el chart con `type = 'monthly'`, `year = YYYY`, `month = MM`.
+#### 2. `lastfm:sync-monthly {user?} {--year=} {--month=} {--limit=100} {--force}` *(Priority #1)*
+- Iterates over the months of a year (`--year=2022`), a specific month (`--year=2022 --month=5`), or the user's entire monthly history.
+- Computes `startOfMonth()->timestamp` and `endOfMonth()->timestamp` in UTC.
+- Calls `LastFm::getWeeklyTrackList($user, $from, $to)` and persists the chart with `type = 'monthly'`, `year = YYYY`, `month = MM`.
 
-#### 3. `lastfm:top {entity=tracks} {--year=} {--month=} {--from=} {--to=} {--tag=} {--exact-tag} {--artist=} {--limit=10}` *(Consultor y Filtrador por Tags)*
-Consulta el chart anual o mensual en base de datos (y si el año/mes pedido aún no está sincronizado, lo sincroniza al vuelo automáticamente) aplicando el filtro de tags:
+#### 3. `lastfm:top {entity=tracks} {--year=} {--month=} {--from=} {--to=} {--tag=} {--exact-tag} {--artist=} {--limit=10}` *(Tag Query & Filter)*
+Queries the yearly or monthly chart in the database (and if the requested year/month is not yet synced, syncs it on the fly automatically) applying the tag filter:
 
 ```bash
-# Las 10 mejores canciones de Metal del año 2022 (incluye heavy metal, thrash metal, etc.)
+# Top 10 Metal tracks of 2022 (includes heavy metal, thrash metal, etc.)
 php artisan lastfm:top tracks --year=2022 --tag="metal" --limit=10
 
-# Las 20 mejores canciones de Mayo de 2022
+# Top 20 tracks of May 2022
 php artisan lastfm:top tracks --year=2022 --month=5 --limit=20
 
-# Las 15 mejores canciones de Rock en Español de 2023
+# Top 15 Rock en Español tracks of 2023
 php artisan lastfm:top tracks --year=2023 --tag="rock en espanol" --limit=15
 
-# Los 10 artistas o álbumes más escuchados de Metal en 2022 (agregados desde los tracks del año)
+# Top 10 Metal artists or albums of 2022 (aggregated from the year's tracks)
 php artisan lastfm:top artists --year=2022 --tag="metal" --limit=10
 php artisan lastfm:top albums --year=2022 --tag="metal" --limit=10
 ```
 
-#### 4. `lastfm:enrich-tags {--missing-only}` *(Herencia de Tags de Artista y Limpieza)*
-- Para toda canción que haya quedado sin tags en `track.getInfo`, consulta `artist.getTopTags` y le hereda los Top 5 tags del artista con su peso `weight`, garantizando que ningún track quede fuera al filtrar por género.
+#### 4. `lastfm:enrich-tags {--missing-only}` *(Artist Tag Inheritance & Cleanup)*
+- For any track left without tags in `track.getInfo`, queries `artist.getTopTags` and inherits the artist's Top 5 tags with their `weight`, ensuring no track is excluded when filtering by genre.
 
-#### 5. `lastfm:sync-weekly` y `lastfm:sync-loved`
-- `lastfm:sync-weekly` se mantiene para quien quiera granularidad semanal (`type = 'weekly'`), compartiendo el mismo motor optimizado.
-- `lastfm:sync-loved` descarga `user.getLovedTracks` y marca `loved = true` en `last_fm_tracks`.
+#### 5. `lastfm:sync-weekly` and `lastfm:sync-loved`
+- `lastfm:sync-weekly` remains available for weekly granularity (`type = 'weekly'`), sharing the same optimized engine.
+- `lastfm:sync-loved` fetches `user.getLovedTracks` and marks `loved = true` on `last_fm_tracks`.
 
 ---
 
-### 5.4 Fase 3: Ampliación del Esquema y Conexión con Deezer API (`https://developers.deezer.com/api`)
+### 5.4 Phase 3: Schema Expansion & Deezer API Integration (`https://developers.deezer.com/api`)
 
-Una vez que `lastfm:top` resuelve cualquier ranking anual, mensual o filtrado por tag, esa misma colección de canciones alimenta directamente la creación de la playlist en **Deezer**.
+Once `lastfm:top` resolves any yearly, monthly, or tag-filtered ranking, that same collection of tracks directly feeds playlist creation in **Deezer**.
 
-#### 1. Esquema Completo de Nuevas Columnas y Tablas
+#### 1. Full Schema of New Columns & Tables
 
 ```mermaid
 erDiagram
     LAST_FM_CHARTS ||--o{ LAST_FM_TRACK_PLAYCOUNTS : "yearly | monthly | weekly"
-    LAST_FM_TRACKS ||--o{ LAST_FM_TAG_LAST_FM_TRACK : "tiene tags con weight"
-    LAST_FM_TRACKS ||--o{ DEEZER_PLAYLIST_LAST_FM_TRACK : "incluida en"
-    DEEZER_PLAYLISTS ||--o{ DEEZER_PLAYLIST_LAST_FM_TRACK : "contiene"
+    LAST_FM_TRACKS ||--o{ LAST_FM_TAG_LAST_FM_TRACK : "has tags with weight"
+    LAST_FM_TRACKS ||--o{ DEEZER_PLAYLIST_LAST_FM_TRACK : "included in"
+    DEEZER_PLAYLISTS ||--o{ DEEZER_PLAYLIST_LAST_FM_TRACK : "contains"
 
     LAST_FM_CHARTS {
         bigint id PK
-        string type "Nuevo: yearly | monthly | weekly | custom"
-        smallint year "Nuevo: Año (Indexado)"
-        tinyint month "Nuevo: Mes 1..12 (Nullable, Indexado)"
-        string from "Unix timestamp inicio"
-        string to "Unix timestamp fin"
+        string type "New: yearly | monthly | weekly | custom"
+        smallint year "New: Year (Indexed)"
+        tinyint month "New: Month 1..12 (Nullable, Indexed)"
+        string from "Start Unix timestamp"
+        string to "End Unix timestamp"
         int play_count_limit
         string user
         boolean synced
@@ -433,7 +433,7 @@ erDiagram
         bigint id PK
         bigint last_fm_tag_id FK
         bigint last_fm_track_id FK
-        tinyint weight "Nuevo: Relevancia 1..100 en Last.fm"
+        tinyint weight "New: Relevance 1..100 on Last.fm"
     }
 
     LAST_FM_TRACKS {
@@ -442,22 +442,22 @@ erDiagram
         bigint last_fm_album_id FK
         string name
         string mbid
-        boolean loved "Nuevo: user.getLovedTracks"
-        bigint deezer_track_id "Nuevo: ID en Deezer (nullable, indexed)"
-        string isrc "Nuevo: Código ISRC (nullable)"
-        int duration "Nuevo: Duración en seg (nullable)"
-        string preview_url "Nuevo: MP3 30s de Deezer (nullable)"
-        string cover_url "Nuevo: Carátula del track/álbum (nullable)"
-        timestamp deezer_synced_at "Nuevo: Fecha de último cruce con Deezer"
+        boolean loved "New: user.getLovedTracks"
+        bigint deezer_track_id "New: Deezer ID (nullable, indexed)"
+        string isrc "New: ISRC code (nullable)"
+        int duration "New: Duration in sec (nullable)"
+        string preview_url "New: Deezer 30s MP3 (nullable)"
+        string cover_url "New: Track/album cover (nullable)"
+        timestamp deezer_synced_at "New: Last Deezer match timestamp"
     }
 
     DEEZER_PLAYLISTS {
         bigint id PK
-        bigint deezer_playlist_id UK "ID real en Deezer"
+        bigint deezer_playlist_id UK "Real Deezer ID"
         string title
         string description
         string source_type "yearly | monthly | tag_mix | weekly | custom"
-        json filters "Ej: {year: 2022, tag: metal, limit: 10}"
+        json filters "E.g.: {year: 2022, tag: metal, limit: 10}"
         int tracks_count
         timestamp synced_at
     }
@@ -470,21 +470,21 @@ erDiagram
     }
 ```
 
-#### 2. Cliente HTTP: `App\Clients\DeezerClient` y Facade `Deezer`
-- **Configuración en [`config/services.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/config/services.php)**: `url`, `app_id`, `secret`, `access_token`.
-- **Rate Limit y Caché**: Respeta el límite de Deezer (**50 peticiones / 5 seg**) y cachea respuestas de búsqueda con `Cache::rememberForever('dz.' . md5(...))`.
-- **Autenticación Single-User**:
-  - Búsqueda de catálogo (`GET /search/track`): **Pública** (sin token).
-  - Creación de playlists (`POST /user/me/playlists`) e inserción de canciones (`POST /playlist/{id}/tracks`): Usa `DEEZER_ACCESS_TOKEN` con scope `offline_access` (`expires=0`).
+#### 2. HTTP Client: `App\Clients\DeezerClient` and Facade `Deezer`
+- **Configuration in [`config/services.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/config/services.php)**: `url`, `app_id`, `secret`, `access_token`.
+- **Rate Limit & Cache**: Respects Deezer's rate limit (**50 requests / 5 sec**) and caches search responses with `Cache::rememberForever('dz.' . md5(...))`.
+- **Single-User Authentication**:
+  - Catalog search (`GET /search/track`): **Public** (no token required).
+  - Playlist creation (`POST /user/me/playlists`) and track insertion (`POST /playlist/{id}/tracks`): Uses `DEEZER_ACCESS_TOKEN` with `offline_access` scope (`expires=0`).
 
-#### 3. Comandos de Deezer
+#### 3. Deezer Commands
 - **`deezer:match-tracks {--year=} {--tag=} {--unmatched-only} {--limit=500}`**:
-  Cruza las canciones locales contra `GET https://api.deezer.com/search/track` en 3 niveles (1: `artist + track + album`, 2: `artist + track` sanitizados sin `(Remastered)`, 3: búsqueda abierta con validación `similar_text >= 85%`) y guarda `deezer_track_id`, `isrc`, `duration`, `preview_url` y `cover_url`.
+  Matches local tracks against `GET https://api.deezer.com/search/track` in 3 tiers (1: `artist + track + album`, 2: sanitized `artist + track` without `(Remastered)`, 3: open search with `similar_text >= 85%` validation) and stores `deezer_track_id`, `isrc`, `duration`, `preview_url`, and `cover_url`.
 - **`deezer:make-playlist {title}`**:
-  Conecta directamente los filtros de `lastfm:top` con tu cuenta de Deezer:
+  Connects `lastfm:top` filters directly to your Deezer account:
   ```bash
-  # Crear playlist en Deezer con el Top 25 de Metal del año 2022
-  php artisan deezer:make-playlist "Metal 2022 - Mis Más Escuchadas" \
+  # Create a Deezer playlist with Top 25 Metal tracks of 2022
+  php artisan deezer:make-playlist "Metal 2022 - My Most Played" \
     --year=2022 \
     --tag="metal" \
     --limit=25
@@ -492,52 +492,51 @@ erDiagram
 
 ---
 
-### 5.5 Fase 4: Arquitectura Detallada del Front-End (Zero-Login, React 19 + Inertia v3 + Tailwind v4)
+### 5.5 Phase 4: Detailed Front-End Architecture (Zero-Login, React 19 + Inertia v3 + Tailwind v4)
 
-Configurado sobre el stack actual ([`package.json`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/package.json): **React 19**, **Inertia.js v3**, **Tailwind CSS v4**, **Radix UI / shadcn**, **Lucide Icons**, **Sonner**, **Wayfinder**) eliminando cualquier pantalla de login.
+Built on the current stack ([`package.json`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/package.json): **React 19**, **Inertia.js v3**, **Tailwind CSS v4**, **Radix UI / shadcn**, **Lucide Icons**, **Sonner**, **Wayfinder**) with all login screens removed.
 
-#### 1. Configuración Zero-Login (Sin Autenticación Local)
-- Rutas directas en [`routes/web.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/routes/web.php) sin middlewares `auth` ni `verified`.
-- En [`resources/js/components/app-sidebar.tsx`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/resources/js/components/app-sidebar.tsx) se reemplaza `<NavUser />` por `<SyncStatusFooter />` (usuario activo de Last.fm, semanas sincronizadas y estado de conexión con Deezer).
+#### 1. Zero-Login Setup (No Local Authentication)
+- Direct routes in [`routes/web.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/routes/web.php) with no `auth` or `verified` middleware.
+- In [`resources/js/components/app-sidebar.tsx`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/resources/js/components/app-sidebar.tsx), `<NavUser />` is replaced by `<SyncStatusFooter />` (active Last.fm user, synced weeks, and Deezer connection status).
 
-#### 2. Pantallas Principales (Enfocadas en Analítica Anual, Mensual y por Tags)
+#### 2. Main Views (Focused on Yearly, Monthly & Tag Analytics)
 
 ```mermaid
 flowchart LR
-    Sidebar["Sidebar Principal (Sin Login)"] --> V1["1. / (Dashboard Anual, Mensual y por Tags)"]
-    Sidebar --> V2["2. /playlists/builder (Generador de Playlists por Año/Mes/Tag)"]
-    Sidebar --> V3["3. /explorer (Explorador de Meses, Semanas y Catálogo)"]
-    Sidebar --> V4["4. /playlists (Mis Playlists en Deezer)"]
-    Sidebar --> V5["5. /sync (Centro de Sincronización)"]
+    Sidebar["Main Sidebar (No Login)"] --> V1["1. / (Yearly, Monthly & Tag Dashboard)"]
+    Sidebar --> V2["2. /playlists/builder (Playlist Builder by Year/Month/Tag)"]
+    Sidebar --> V3["3. /explorer (Months, Weeks & Catalog Explorer)"]
+    Sidebar --> V4["4. /playlists (My Deezer Playlists)"]
+    Sidebar --> V5["5. /sync (Sync Center)"]
 ```
 
-- **Vista 1: `/` — Dashboard Anual, Mensual y por Géneros (`pages/dashboard/index.tsx`)**
-  - **Selector Principal de Periodo y Género (Header Sticky)**:
-    - Selector de **Año** (`Todos`, `2026`, `2025`, ..., `2007`) o rango de años.
-    - Selector de **Mes** (`Todo el año`, `Enero` .. `Diciembre`) para hacer zoom mensual inmediato.
-    - Buscador/Selector de **Tag / Familia de Género** (ej. seleccionar `Metal` con toggle *"Incluir subgéneros como Thrash, Progressive, Death Metal"*).
-  - **KPI Cards Dinámicas**: Reproducciones totales del año/mes/tag seleccionado, Canciones Únicas, Artistas Únicos, Género #1 del periodo y `%` de canciones listas en Deezer.
-  - **Matriz Anual / Mensual Interactiva**:
-    - Gráfico de barras mes a mes (Enero a Diciembre del año elegido) o año a año, más distribución porcentual de géneros (`Top Tags` del año).
-  - **Bento Grid de Rankings (Con Botón "Crear Playlist en Deezer" en 1 clic)**:
-    - **Top Canciones del Año/Mes/Tag** (con carátula, botón Play de preview MP3 de 30s, reproducciones acumuladas, semanas de permanencia y mejor puesto `#Peak`).
-    - **Top Artistas del Año/Mes/Tag**.
-    - **Top Álbumes del Año/Mes/Tag**.
-    - **Desglose de Subgéneros** (ej. al filtrar `Metal` en `2022`, muestra cuánto aportó `progressive metal`, `thrash metal`, `heavy metal`, etc.).
+- **View 1: `/` — Yearly, Monthly & Genre Dashboard (`pages/dashboard/index.tsx`)**
+  - **Main Period & Genre Selector (Sticky Header)**:
+    - **Year** selector (`All`, `2026`, `2025`, ..., `2007`) or year range.
+    - **Month** selector (`Full Year`, `January` .. `December`) for instant monthly zoom.
+    - **Tag / Genre Family** search/selector (e.g., selecting `Metal` with a toggle *"Include subgenres like Thrash, Progressive, Death Metal"*).
+  - **Dynamic KPI Cards**: Total plays for the selected year/month/tag, Unique Tracks, Unique Artists, #1 Genre of the period, and `%` of tracks ready on Deezer.
+  - **Interactive Yearly / Monthly Matrix**:
+    - Month-by-month bar chart (January to December of the chosen year) or year-by-year, plus genre percentage breakdown (`Top Tags` of the year).
+  - **Rankings Bento Grid (With 1-Click "Create Playlist on Deezer" Button)**:
+    - **Top Tracks of the Year/Month/Tag** (with cover art, 30s MP3 preview Play button, total plays, weeks on chart, and `#Peak` position).
+    - **Top Artists of the Year/Month/Tag**.
+    - **Top Albums of the Year/Month/Tag**.
+    - **Subgenre Breakdown** (e.g., when filtering `Metal` in `2022`, shows how much `progressive metal`, `thrash metal`, `heavy metal`, etc. contributed).
 
-- **Vista 2: `/playlists/builder` — Laboratorio de Playlists por Año, Mes y Tags (`pages/playlists/builder.tsx`)**
-  - **Columna Izquierda (Constructor Visual de Reglas)**:
-    - **Presets Instantáneos**: *"Top 50 de un Año"*, *"Lo Mejor de [Género] en [Año]"* (ej. Metal 2022), *"Resumen Mensual (Año + Mes)"*, *"Joyas Olvidadas de una Época"*, *"Mis Loved Tracks por Género"*.
-    - **Filtros**: Año(s), Mes(es), Tags y Familias de Tags (`INCLUIR` / `EXCLUIR`), Artistas, **Limitador Anti-Monopolio** (*"Máximo $N$ canciones por artista"*), mínimo de reproducciones y tamaño de la playlist (`10`, `25`, `50`, `100`).
-  - **Columna Derecha (Previsualización en Vivo + Mini-Player + Publicación en Deezer)**:
-    - Tabla en vivo con las canciones exactas que cumplen la regla, su conteo de reproducciones en ese año/mes y sus tags.
-    - Botón para matchear al vuelo con Deezer cualquier canción que aún no tenga `deezer_track_id`.
-    - **Mini-Reproductor de Audio en el footer** para escuchar los previews de 30s de Deezer antes de exportar.
-    - Botón **"🚀 Crear Playlist en Deezer"** con nombre autogenerado editable (ej. `"Top Metal 2022 • Last.fm"`).
+- **View 2: `/playlists/builder` — Playlist Lab by Year, Month & Tags (`pages/playlists/builder.tsx`)**
+  - **Left Column (Visual Rule Builder)**:
+    - **Instant Presets**: *"Top 50 of a Year"*, *"Best of [Genre] in [Year]"* (e.g., Metal 2022), *"Monthly Recap (Year + Month)"*, *"Forgotten Gems of an Era"*, *"My Loved Tracks by Genre"*.
+    - **Filters**: Year(s), Month(s), Tags & Tag Families (`INCLUDE` / `EXCLUDE`), Artists, **Anti-Monopoly Cap** (*"Max $N$ tracks per artist"*), minimum playcount, and playlist size (`10`, `25`, `50`, `100`).
+  - **Right Column (Live Preview + Mini-Player + Publish to Deezer)**:
+    - Live table with the exact tracks matching the rule, their playcount in that year/month, and their tags.
+    - Button to match on the fly with Deezer any track missing a `deezer_track_id`.
+    - **Footer Audio Mini-Player** to listen to Deezer 30s previews before exporting.
+    - **"🚀 Create Playlist on Deezer"** button with an editable auto-generated name (e.g., `"Top Metal 2022 • Last.fm"`).
 
-- **Vista 3: `/explorer` — Explorador de Meses, Semanas y Catálogo (`pages/explorer/index.tsx`)**
-  - Permite navegar en árbol **Año → Mes → Semana** o buscar directamente en el catálogo de canciones/artistas/tags, viendo en qué años y meses sonó cada canción y corrigiendo manualmente el `deezer_track_id` si se requiere.
+- **View 3: `/explorer` — Months, Weeks & Catalog Explorer (`pages/explorer/index.tsx`)**
+  - Allows browsing a **Year → Month → Week** tree or searching directly across tracks/artists/tags, viewing which years and months each track charted, and manually fixing `deezer_track_id` if needed.
 
-- **Vista 4: `/playlists` y `/sync` — Historial de Playlists y Centro de Sincronización**
-  - Gestión y regeneración de playlists enviadas a Deezer (`/playlists`) y ejecución desde la web de los comandos de sincronización y enriquecimiento de tags (`/sync`).
-
+- **View 4: `/playlists` and `/sync` — Playlist History & Sync Center**
+  - Manage and regenerate playlists pushed to Deezer (`/playlists`), and trigger sync and tag-enrichment commands from the web UI (`/sync`).
