@@ -4,9 +4,67 @@ Application built on **Laravel 13 (PHP 8.3+)** focused on extracting, enriching,
 
 ---
 
+## 0. AI Agent Architecture & Workflow (`.agents/`)
+
+Alongside [`AGENTS.md`](AGENTS.md), the [`.agents/`](.agents) directory configures a multi-agent development workflow tailored to `lastfm_v3` (Laravel 13 + Inertia v3 + React 19 + Tailwind v4). It defines specialized roles, domain guardrails, framework skills, and MCP tooling so changes follow the project's architecture and never violate database or API constraints.
+
+### Directory Structure
+
+| Path | Purpose |
+| :--- | :--- |
+| [`.agents/agents/`](.agents/agents) | Role definitions, tool permissions, and scope boundaries for each specialized agent. |
+| [`.agents/rules/`](.agents/rules) | Domain source-of-truth rules (`trigger: model_decision`) consulted before planning or editing code. |
+| [`.agents/skills/`](.agents/skills) | Framework-specific skill guides (Laravel, Inertia React, Tailwind, Pest, Wayfinder, convention inference). |
+| [`.agents/mcp_config.json`](.agents/mcp_config.json) | MCP server configuration registering `laravel-boost` (`php artisan boost:mcp`). |
+
+### How the Agents Work Together
+
+```mermaid
+flowchart LR
+    U["User Request"] --> O["orquestador (Tech Lead)"]
+    O -- "1. Define Data Contract & Delegate" --> B["backend-developer"]
+    B -- "PHP DTOs, Actions, Routes, Wayfinder, Pest" --> O
+    O -- "2. Pass Contract & Wayfinder Routes" --> F["frontend-developer"]
+    F -- "Inertia Pages, React 19, shadcn/ui, Vite Build" --> O
+    O -- "3. Read-Only Verification" --> Q["qa-engineer"]
+    Q -- "PASS / FAIL (max 3 cycles)" --> O
+```
+
+### Agent Roles & Responsibilities
+
+1. **[`orquestador`](.agents/agents/orquestador.md)** — *Tech Lead & Full-Stack Architect (`mainAgent: true`)*
+   - **What it does:** Receives the user's request, reads [`.agents/rules/lastfm-domain.md`](.agents/rules/lastfm-domain.md) and existing code, clarifies any ambiguity (data scope, user, `play_count_limit`), breaks the work into numbered tasks, and defines a single **backend ↔ frontend data contract** (PHP DTOs, Inertia page name, exact TypeScript prop types, and named Wayfinder routes).
+   - **How it operates:** **Never writes or edits application files.** It delegates sequentially (`backend-developer` → `frontend-developer` → `qa-engineer`), requests explicit user approval before restricted commands (`migrate`, `db:seed`, `lastfm:sync-weekly`, `cache:clear`, reading `.env`), validates final diffs against the contract, and routes any QA failures back to the responsible agent (up to 3 cycles).
+
+2. **[`backend-developer`](.agents/agents/backend-developer.md)** — *Laravel 13 / PHP 8.3+ Specialist*
+   - **What it does:** Implements the server-side portion of the data contract: Eloquent models, reversible migrations, `final readonly` DTOs (`app/Data/`), `final` Actions (`app/Actions/`), Services (`app/Services/`), thin Inertia controllers (`app/Http/Controllers/`), HTTP clients (`app/Clients/`), named routes (`routes/`), and Pest tests (`tests/`).
+   - **Scope & rules:** Restricted to `app/`, `database/migrations/`, `database/factories/`, `routes/`, `config/`, and `tests/` (only touches [`ResetLastFm.php`](database/seeders/ResetLastFm.php) when a migration adds or drops a domain table). Never touches `resources/js/`, `.env`, or `composer.json` without approval. Uses `Http::fake()` in all tests and runs `vendor/bin/rector`, `vendor/bin/pint`, `php artisan wayfinder:generate`, and `php artisan test` before handing back to the orchestrator.
+
+3. **[`frontend-developer`](.agents/agents/frontend-developer.md)** — *React 19 + Inertia v3 + Tailwind v4 Specialist*
+   - **What it does:** Builds responsive, light/dark-mode Inertia pages (`resources/js/pages/`), layouts (`resources/js/layouts/`), domain components (`resources/js/components/`), hooks, and TypeScript interfaces (`resources/js/types/`) strictly matching the orchestrator's data contract and Wayfinder routes (`@/routes`).
+   - **Scope & rules:** Activates `modern-web-guidance` before implementing UI, reuses existing shadcn/ui primitives from `resources/js/components/ui/` (composed with `cn()`), and uses `<Deferred>` + `Skeleton` for deferred props. Never touches backend files or manually edits generated `resources/js/routes/**` or `resources/js/wayfinder/**`. Runs `npx eslint resources/js --fix`, `npx tsc --noEmit`, and `npm run build` before handing back.
+
+4. **[`qa-engineer`](.agents/agents/qa-engineer.md)** — *Read-Only Quality & Contract Verifier (`model: flash`)*
+   - **What it does:** Independently verifies everything produced by `backend-developer` and `frontend-developer` and issues a structured `PASS | FAIL` verdict with literal error evidence, classifying failures as regressions or pre-existing issues.
+   - **Scope & rules:** Strictly read-only — never creates, edits, deletes, formats, or builds files, and never runs DB/API-mutating commands. Executes `git status --short`, `git diff --stat`, `php artisan test` (SQLite `:memory:`), `npx tsc --noEmit`, and `php artisan route:list --except-vendor`, and audits the diff for contract parity, `user` + `play_count_limit` filtering, `Http::fake()` usage, and absence of hardcoded URLs or unauthorized dependencies.
+
+### Domain Rules, Skills & MCP
+
+- **Domain Guardrails ([`lastfm-domain.md`](.agents/rules/lastfm-domain.md))**: Acts as the single source of truth for `LASTFM_*` env/config keys, the 7 `last_fm_*` tables and unique indexes (including filtering charts by `user` + `play_count_limit` + `viral_limit`), `LastFmClient` permanent caching, `ResetLastFm` seeder rules, and **restricted commands** (`db:seed`, `migrate*`, `lastfm:sync-weekly`, `cache:clear`, reading `.env`) that require explicit user approval.
+- **Installed Skills ([`.agents/skills/`](.agents/skills))**:
+  - `laravel-best-practices` — Laravel architecture, Eloquent, queries, caching, security, and validation patterns.
+  - `inertia-react-development` — Inertia.js v3 React patterns (`<Link>`, `<Form>`, `useForm`, `<Deferred>`, polling, etc.).
+  - `tailwindcss-development` — Tailwind CSS v4 utilities, responsive grids, and dark mode tokens.
+  - `testing-best-practices` — Pest test design, isolation, assertions, and coverage review.
+  - `wayfinder-development` — Typed route/controller imports from `@/actions` and `@/routes`.
+  - `infer-conventions` — On-demand convention analysis (`disable-model-invocation: true`) that records project rules via Boost.
+- **MCP Integration ([`mcp_config.json`](.agents/mcp_config.json))**: Exposes `laravel-boost` (`php artisan boost:mcp`) so agents can inspect database schemas, run read-only queries, check logs, and search version-accurate Laravel ecosystem documentation.
+
+---
+
 ## 1. Technical Analysis of `LastFmSyncWeekly`
 
-**File:** [`app/Console/Commands/LastFmSyncWeekly.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php)
+**File:** [`app/Console/Commands/LastFmSyncWeekly.php`](app/Console/Commands/LastFmSyncWeekly.php)
 
 ### 1.1 Command Definition & Signature
 The command uses native PHP 8 / Laravel 13 attributes to declare its signature and description:
@@ -98,9 +156,9 @@ Below are all project-owned PHP files that `LastFmSyncWeekly` directly or indire
 
 ### 2.1 HTTP Client Layer, Facade & Service Provider
 
-#### [`app/Clients/LastFmClient.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Clients/LastFmClient.php)
+#### [`app/Clients/LastFmClient.php`](app/Clients/LastFmClient.php)
 HTTP client responsible for all communication with the Audioscrobbler / Last.fm 2.0 API (`http://ws.audioscrobbler.com/2.0/`).
-- **Configuration**: Reads `url`, `key`, and `user` from [`config/services.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/config/services.php) (`services.lastfm.*`).
+- **Configuration**: Reads `url`, `key`, and `user` from [`config/services.php`](config/services.php) (`services.lastfm.*`).
 - **Permanent Cache (`resolve`)**: All requests go through `resolve()`, which builds a deterministic key `'lfm.' . md5($method . serialize($params))` and wraps the call in `Cache::rememberForever()`.
   - If a track or artist was queried in the past, `getTrackInfo()` or `getWeeklyTrackList()` are served directly from local cache without hitting the network.
   - When `$cache = false` is passed (used in `getWeeklyChartList()`), it invalidates the key via `Cache::forget()` before refreshing.
@@ -112,11 +170,11 @@ HTTP client responsible for all communication with the Audioscrobbler / Last.fm 
   - `getTrackInfo(string $artist, string $track)` → `track.getinfo`
   - `getAlbumInfo(string $artist, string $album)` → `album.getinfo`
 
-#### [`app/Facades/LastFm.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Facades/LastFm.php)
+#### [`app/Facades/LastFm.php`](app/Facades/LastFm.php)
 Laravel Facade whose `getFacadeAccessor()` points to `App\Clients\LastFmClient::class`, allowing static client calls (`LastFm::getUserInfo(...)`, etc.).
 
-#### [`app/Providers/LastFmServiceProvider.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Providers/LastFmServiceProvider.php) and [`config/services.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/config/services.php)
-- `LastFmServiceProvider` is registered in [`bootstrap/providers.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/bootstrap/providers.php) to bind `LastFmClient` as a *singleton* in the IoC container.
+#### [`app/Providers/LastFmServiceProvider.php`](app/Providers/LastFmServiceProvider.php) and [`config/services.php`](config/services.php)
+- `LastFmServiceProvider` is registered in [`bootstrap/providers.php`](bootstrap/providers.php) to bind `LastFmClient` as a *singleton* in the IoC container.
 - `config/services.php` centralizes environment variables:
   - `LASTFM_API_KEY` (`services.lastfm.key`)
   - `LASTFM_USER` (`services.lastfm.user`, default: `'svigle'`)
@@ -127,24 +185,24 @@ Laravel Facade whose `getFacadeAccessor()` points to `App\Clients\LastFmClient::
 
 ### 2.2 Eloquent Models Layer (`app/Models/`)
 
-- **[`app/Models/LastFmChart.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmChart.php)**:
+- **[`app/Models/LastFmChart.php`](app/Models/LastFmChart.php)**:
   Represents a weekly listening period for a given user and track limit.
   - Disables `timestamps` (`#[WithoutTimestamps]`).
   - Casts `from` and `to` (stored as Unix timestamp strings) to `Carbon` objects formatted as `datetime:Y-m-d H:i:s`.
   - Static query/creation helpers: `existingCharts(string $user, int $limit)` (indexes results by `$chart->from->timestamp`) and `forChart(...)`.
   - State method: `markAsSynced()`.
   - Relationships: `trackPlaycounts()` (`HasMany`) and `tracks()` (`HasManyThrough`).
-- **[`app/Models/LastFmArtist.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmArtist.php)**:
+- **[`app/Models/LastFmArtist.php`](app/Models/LastFmArtist.php)**:
   Represents a music artist (`name`, `mbid`). Defines `albums()` (`HasMany`) and `tracks()` (`HasMany`).
-- **[`app/Models/LastFmAlbum.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmAlbum.php)**:
+- **[`app/Models/LastFmAlbum.php`](app/Models/LastFmAlbum.php)**:
   Represents an album (`last_fm_artist_id`, `name`, `mbid`). Defines `artist()` (`BelongsTo`) and `tracks()` (`HasMany`).
-- **[`app/Models/LastFmTrack.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTrack.php)**:
+- **[`app/Models/LastFmTrack.php`](app/Models/LastFmTrack.php)**:
   Represents a unique track per artist and album (`last_fm_artist_id`, `last_fm_album_id`, `name`, `mbid`).
   - Includes local scope `#[Scope] byArtistName(string $artistName)`.
   - Relationships: `artist()` (`BelongsTo`), `album()` (`BelongsTo`), `playcounts()` (`HasMany`), and `tags()` (`BelongsToMany` with `LastFmTag`).
-- **[`app/Models/LastFmTag.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTag.php)**:
+- **[`app/Models/LastFmTag.php`](app/Models/LastFmTag.php)**:
   Genre/tag catalog (`name`). Relationship: `tracks()` (`BelongsToMany` with `LastFmTrack`).
-- **[`app/Models/LastFmTrackPlaycounts.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTrackPlaycounts.php)**:
+- **[`app/Models/LastFmTrackPlaycounts.php`](app/Models/LastFmTrackPlaycounts.php)**:
   Associative entity recording how many times (`playcount`) and at what position (`rank`) a track (`last_fm_track_id`) was played within a specific week (`last_fm_chart_id`).
 
 ---
@@ -231,29 +289,29 @@ erDiagram
 
 #### Last.fm Domain
 1. **`last_fm_charts`**
-   - [`2026_04_13_203621_create_last_fm_charts_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_13_203621_create_last_fm_charts_table.php): Creates the table with `id`, `from` (`string`, default `''`), `to` (`string`, default `''`), `user` (`string`, default `''`), `synced` (`boolean`, default `false`). Does not use `timestamps`.
-   - [`2026_04_16_194635_last_fm_charts_play_count_limit.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_16_194635_last_fm_charts_play_count_limit.php): Adds the `play_count_limit` (`integer`) column after `to`.
+   - [`2026_04_13_203621_create_last_fm_charts_table.php`](database/migrations/2026_04_13_203621_create_last_fm_charts_table.php): Creates the table with `id`, `from` (`string`, default `''`), `to` (`string`, default `''`), `user` (`string`, default `''`), `synced` (`boolean`, default `false`). Does not use `timestamps`.
+   - [`2026_04_16_194635_last_fm_charts_play_count_limit.php`](database/migrations/2026_04_16_194635_last_fm_charts_play_count_limit.php): Adds the `play_count_limit` (`integer`) column after `to`.
 2. **`last_fm_artists`**
-   - [`2026_04_16_202718_create_last_fm_artists_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_16_202718_create_last_fm_artists_table.php): Creates `id`, `name` (`string`), `mbid` (`string`, nullable), and `timestamps()`.
+   - [`2026_04_16_202718_create_last_fm_artists_table.php`](database/migrations/2026_04_16_202718_create_last_fm_artists_table.php): Creates `id`, `name` (`string`), `mbid` (`string`, nullable), and `timestamps()`.
 3. **`last_fm_albums`**
-   - [`2026_04_19_225629_create_last_fm_albums_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_19_225629_create_last_fm_albums_table.php): Creates `id`, `last_fm_artist_id` (`foreignIdFor(LastFmArtist::class)`), `name` (`string`), `mbid` (`string`, nullable), and `timestamps()`.
+   - [`2026_04_19_225629_create_last_fm_albums_table.php`](database/migrations/2026_04_19_225629_create_last_fm_albums_table.php): Creates `id`, `last_fm_artist_id` (`foreignIdFor(LastFmArtist::class)`), `name` (`string`), `mbid` (`string`, nullable), and `timestamps()`.
 4. **`last_fm_tracks`**
-   - [`2026_04_16_202751_create_last_fm_tracks_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_16_202751_create_last_fm_tracks_table.php): Creates `id`, `last_fm_artist_id` (`foreignIdFor(LastFmArtist::class)`), `name` (`string`), `mbid` (`string`, nullable), and `timestamps()`.
-   - [`2026_04_19_230958_add_album_to_track_last_fm.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_19_230958_add_album_to_track_last_fm.php): Adds `last_fm_album_id` (`foreignIdFor(LastFmAlbum::class)`) after `last_fm_artist_id`.
+   - [`2026_04_16_202751_create_last_fm_tracks_table.php`](database/migrations/2026_04_16_202751_create_last_fm_tracks_table.php): Creates `id`, `last_fm_artist_id` (`foreignIdFor(LastFmArtist::class)`), `name` (`string`), `mbid` (`string`, nullable), and `timestamps()`.
+   - [`2026_04_19_230958_add_album_to_track_last_fm.php`](database/migrations/2026_04_19_230958_add_album_to_track_last_fm.php): Adds `last_fm_album_id` (`foreignIdFor(LastFmAlbum::class)`) after `last_fm_artist_id`.
 5. **`last_fm_track_playcounts`**
-   - [`2026_04_16_204234_create_last_fm_track_playcounts_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_16_204234_create_last_fm_track_playcounts_table.php): Creates `id`, `last_fm_track_id` (`foreignIdFor(LastFmTrack::class)`), `last_fm_chart_id` (`foreignIdFor(LastFmChart::class)`), `playcount` (`integer`), and `timestamps()`.
-   - [`2026_04_17_184026_add_rank_last_fm_track_playcounts.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_17_184026_add_rank_last_fm_track_playcounts.php): Adds `rank` (`unsignedInteger`, nullable) after `playcount`.
+   - [`2026_04_16_204234_create_last_fm_track_playcounts_table.php`](database/migrations/2026_04_16_204234_create_last_fm_track_playcounts_table.php): Creates `id`, `last_fm_track_id` (`foreignIdFor(LastFmTrack::class)`), `last_fm_chart_id` (`foreignIdFor(LastFmChart::class)`), `playcount` (`integer`), and `timestamps()`.
+   - [`2026_04_17_184026_add_rank_last_fm_track_playcounts.php`](database/migrations/2026_04_17_184026_add_rank_last_fm_track_playcounts.php): Adds `rank` (`unsignedInteger`, nullable) after `playcount`.
 6. **`last_fm_tags` and pivot table `last_fm_tag_last_fm_track`**
-   - [`2026_06_15_030723_create_last_fm_tags_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_06_15_030723_create_last_fm_tags_table.php): Creates `id`, `name` (`string`), and `timestamps()`.
-   - [`2026_06_15_031109_create_last_fm_tag_last_fm_track_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_06_15_031109_create_last_fm_tag_last_fm_track_table.php): Creates the pivot table with explicit foreign keys (`constrained()->cascadeOnDelete()`) referencing `last_fm_tags` and `last_fm_tracks`.
+   - [`2026_06_15_030723_create_last_fm_tags_table.php`](database/migrations/2026_06_15_030723_create_last_fm_tags_table.php): Creates `id`, `name` (`string`), and `timestamps()`.
+   - [`2026_06_15_031109_create_last_fm_tag_last_fm_track_table.php`](database/migrations/2026_06_15_031109_create_last_fm_tag_last_fm_track_table.php): Creates the pivot table with explicit foreign keys (`constrained()->cascadeOnDelete()`) referencing `last_fm_tags` and `last_fm_tracks`.
 
 #### Infrastructure & Authentication
-- [`0001_01_01_000001_create_cache_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/0001_01_01_000001_create_cache_table.php): Creates the `cache` table where `LastFmClient` permanently stores (`Cache::rememberForever`) Last.fm JSON payloads under the `lfm.<md5>` prefix.
-- [`0001_01_01_000000_create_users_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/0001_01_01_000000_create_users_table.php) and [`2026_04_25_190307_add_two_factor_columns_to_users_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/2026_04_25_190307_add_two_factor_columns_to_users_table.php): Users, sessions, and 2FA tables (Laravel Fortify).
-- [`0001_01_01_000002_create_jobs_table.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/migrations/0001_01_01_000002_create_jobs_table.php): Queue tables (`jobs`, `job_batches`, `failed_jobs`).
+- [`0001_01_01_000001_create_cache_table.php`](database/migrations/0001_01_01_000001_create_cache_table.php): Creates the `cache` table where `LastFmClient` permanently stores (`Cache::rememberForever`) Last.fm JSON payloads under the `lfm.<md5>` prefix.
+- [`0001_01_01_000000_create_users_table.php`](database/migrations/0001_01_01_000000_create_users_table.php) and [`2026_04_25_190307_add_two_factor_columns_to_users_table.php`](database/migrations/2026_04_25_190307_add_two_factor_columns_to_users_table.php): Users, sessions, and 2FA tables (Laravel Fortify).
+- [`0001_01_01_000002_create_jobs_table.php`](database/migrations/0001_01_01_000002_create_jobs_table.php): Queue tables (`jobs`, `job_batches`, `failed_jobs`).
 
 ### 3.3 Seeders (`database/seeders/`)
-- **[`ResetLastFm.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/seeders/ResetLastFm.php)**: Utility seeder invoked by [`DatabaseSeeder.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/database/seeders/DatabaseSeeder.php) that temporarily disables foreign key constraints (`Schema::withoutForeignKeyConstraints`) and runs `truncate()` across all 7 Last.fm domain tables (`last_fm_charts`, `last_fm_artists`, `last_fm_tracks`, `last_fm_track_playcounts`, `last_fm_albums`, `last_fm_tags`, and `last_fm_tag_last_fm_track`), leaving the `cache` table intact so the relational database can be repopulated in seconds without calling the Last.fm API again.
+- **[`ResetLastFm.php`](database/seeders/ResetLastFm.php)**: Utility seeder invoked by [`DatabaseSeeder.php`](database/seeders/DatabaseSeeder.php) that temporarily disables foreign key constraints (`Schema::withoutForeignKeyConstraints`) and runs `truncate()` across all 7 Last.fm domain tables (`last_fm_charts`, `last_fm_artists`, `last_fm_tracks`, `last_fm_track_playcounts`, `last_fm_albums`, `last_fm_tags`, and `last_fm_tag_last_fm_track`), leaving the `cache` table intact so the relational database can be repopulated in seconds without calling the Last.fm API again.
 
 ---
 
@@ -262,7 +320,7 @@ erDiagram
 During cross-validation between `LastFmSyncWeekly`, Eloquent models, and migrations in `database/`, the following technical points were identified:
 
 1. **Missing Unique Index on `last_fm_track_playcounts` for `upsert()`**:
-   - In [`LastFmSyncWeekly.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php#L270-L274), the following is executed:
+   - In [`LastFmSyncWeekly.php`](app/Console/Commands/LastFmSyncWeekly.php#L270-L274), the following is executed:
      ```php
      LastFmTrackPlaycounts::upsert(
          $playcountsToInsert,
@@ -272,12 +330,12 @@ During cross-validation between `LastFmSyncWeekly`, Eloquent models, and migrati
      ```
    - The `last_fm_track_playcounts` table does not define `$table->unique(['last_fm_chart_id', 'last_fm_track_id'])`. On engines like SQLite or PostgreSQL this triggers an SQL error in `ON CONFLICT`, and on MySQL/MariaDB it prevents `ON DUPLICATE KEY UPDATE` from detecting collisions on that pair, inserting duplicate rows if a partial week is re-run.
 2. **Incorrect Namespace in `LastFmServiceProvider`**:
-   - In [`app/Providers/LastFmServiceProvider.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Providers/LastFmServiceProvider.php#L7), `App\Services\LastFmClient` (non-existent) is imported instead of `App\Clients\LastFmClient`. As a result, the singleton registered in the provider is never used and Laravel instantiates `App\Clients\LastFmClient` as a fresh class via auto-wiring every time the Facade resolves it.
+   - In [`app/Providers/LastFmServiceProvider.php`](app/Providers/LastFmServiceProvider.php#L7), `App\Services\LastFmClient` (non-existent) is imported instead of `App\Clients\LastFmClient`. As a result, the singleton registered in the provider is never used and Laravel instantiates `App\Clients\LastFmClient` as a fresh class via auto-wiring every time the Facade resolves it.
 3. **Implicit Foreign Keys in `BelongsTo` and `HasManyThrough` Relationships**:
-   - In [`LastFmAlbum::artist()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmAlbum.php#L17-L20), [`LastFmTrack::artist()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTrack.php#L24-L27), and [`LastFmTrack::album()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTrack.php#L19-L22), Eloquent infers the foreign key name from the method name (`artist_id` and `album_id`), whereas the actual database columns are `last_fm_artist_id` and `last_fm_album_id`. The second parameter must be specified explicitly (`$this->belongsTo(LastFmArtist::class, 'last_fm_artist_id')`).
-   - In [`LastFmChart::tracks()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmChart.php#L49-L52), the `hasManyThrough` relationship requires explicit keys or should be replaced with `belongsToMany(LastFmTrack::class, 'last_fm_track_playcounts')->withPivot(['playcount', 'rank'])`.
+   - In [`LastFmAlbum::artist()`](app/Models/LastFmAlbum.php#L17-L20), [`LastFmTrack::artist()`](app/Models/LastFmTrack.php#L24-L27), and [`LastFmTrack::album()`](app/Models/LastFmTrack.php#L19-L22), Eloquent infers the foreign key name from the method name (`artist_id` and `album_id`), whereas the actual database columns are `last_fm_artist_id` and `last_fm_album_id`. The second parameter must be specified explicitly (`$this->belongsTo(LastFmArtist::class, 'last_fm_artist_id')`).
+   - In [`LastFmChart::tracks()`](app/Models/LastFmChart.php#L49-L52), the `hasManyThrough` relationship requires explicit keys or should be replaced with `belongsToMany(LastFmTrack::class, 'last_fm_track_playcounts')->withPivot(['playcount', 'rank'])`.
 4. **Initialization of `$tags` in `getWeeklyTrackList()`**:
-   - In [`LastFmSyncWeekly.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php#L213-L233), `$tags` is only defined inside `if ($artist && $trackName)`. If a chart entry ever arrived without an artist or track name, `'tags' => $tags->toArray()` would throw an undefined variable exception.
+   - In [`LastFmSyncWeekly.php`](app/Console/Commands/LastFmSyncWeekly.php#L213-L233), `$tags` is only defined inside `if ($artist && $trackName)`. If a chart entry ever arrived without an artist or track name, `'tags' => $tags->toArray()` would throw an undefined variable exception.
 
 ---
 
@@ -290,9 +348,9 @@ This section documents the detailed technical plan, prioritizing as the **first 
 ### 5.1 Phase 0: Hardening the Current Foundation (Mandatory Fixes)
 
 1. **Unique index on `last_fm_track_playcounts`**: Add `$table->unique(['last_fm_chart_id', 'last_fm_track_id'])` in a migration so `LastFmTrackPlaycounts::upsert()` is idempotent and neither duplicates rows nor fails on SQLite/PostgreSQL.
-2. **Fix [`LastFmServiceProvider.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Providers/LastFmServiceProvider.php)**: Change `use App\Services\LastFmClient;` to `use App\Clients\LastFmClient;`.
-3. **Fix foreign keys in Eloquent Models**: Specify `'last_fm_artist_id'` and `'last_fm_album_id'` in the `belongsTo()` calls of [`LastFmAlbum`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmAlbum.php) and [`LastFmTrack`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Models/LastFmTrack.php), and replace `LastFmChart::tracks()` with `belongsToMany(LastFmTrack::class, 'last_fm_track_playcounts')->withPivot(['playcount', 'rank'])`.
-4. **Safe initialization of `$tags` and in-RAM caching of `getTrackInfo`**: Declare `$tags = collect();` before the conditional in [`LastFmSyncWeekly::getWeeklyTrackList()`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php#L210-L221) and memoize `LastFm::getTrackInfo()` responses in an in-memory `$this->trackInfoMap` array so the same track is not queried or deserialized from the `cache` table dozens of times as it repeats across years.
+2. **Fix [`LastFmServiceProvider.php`](app/Providers/LastFmServiceProvider.php)**: Change `use App\Services\LastFmClient;` to `use App\Clients\LastFmClient;`.
+3. **Fix foreign keys in Eloquent Models**: Specify `'last_fm_artist_id'` and `'last_fm_album_id'` in the `belongsTo()` calls of [`LastFmAlbum`](app/Models/LastFmAlbum.php) and [`LastFmTrack`](app/Models/LastFmTrack.php), and replace `LastFmChart::tracks()` with `belongsToMany(LastFmTrack::class, 'last_fm_track_playcounts')->withPivot(['playcount', 'rank'])`.
+4. **Safe initialization of `$tags` and in-RAM caching of `getTrackInfo`**: Declare `$tags = collect();` before the conditional in [`LastFmSyncWeekly::getWeeklyTrackList()`](app/Console/Commands/LastFmSyncWeekly.php#L210-L221) and memoize `LastFm::getTrackInfo()` responses in an in-memory `$this->trackInfoMap` array so the same track is not queried or deserialized from the `cache` table dozens of times as it repeats across years.
 
 ---
 
@@ -322,7 +380,7 @@ To make tag filtering rock-solid, we solve 3 real-world Last.fm metadata issues:
 
 1. **Requesting a Top 10 for a specific Tag in a Year requires a wide `play_count_limit` for that Year**:
    If your top 50 tracks of 2022 were K-Pop or Indie and Metal only starts appearing at #55 for the year, syncing 2022 with `--limit=20` would miss those 10 Metal tracks.
-   - **Solution**: For `yearly` and `monthly` charts, we sync with a wide limit (e.g. `--limit=250` or `--limit=500`), and optimize [`LastFmSyncWeekly`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php) so it **only queries `LastFm::getTrackInfo()` when the track does not yet exist in `last_fm_tracks`**.
+   - **Solution**: For `yearly` and `monthly` charts, we sync with a wide limit (e.g. `--limit=250` or `--limit=500`), and optimize [`LastFmSyncWeekly`](app/Console/Commands/LastFmSyncWeekly.php) so it **only queries `LastFm::getTrackInfo()` when the track does not yet exist in `last_fm_tracks`**.
 2. **Subgenre Fragmentation (`metal` vs `thrash metal`, `progressive metal`, `heavy metal`, `death metal`)**:
    - **Solution**: **Tag Family** matching (`tg.name = 'metal' OR tg.name LIKE '%metal%'`) + a `weight` column (`unsignedTinyInteger`, default `100`) on `last_fm_tag_last_fm_track` (storing the `count` `1..100` returned by `track.getInfo` in `toptags.tag`) to discard irrelevant tags (`weight < 20`).
 3. **Tracks Missing Tags in `track.getInfo`**:
@@ -364,7 +422,7 @@ LIMIT 10;
 
 ### 5.3 Phase 2 (PRIORITY #1): Artisan Commands for Yearly/Monthly Sync & Tag Rankings
 
-We will refactor the shared logic from [`LastFmSyncWeekly.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/app/Console/Commands/LastFmSyncWeekly.php) into a reusable service/action (`App\Actions\SyncLastFmChartRange`) that accepts any `(user, from, to, type, limit)` and powers these commands:
+We will refactor the shared logic from [`LastFmSyncWeekly.php`](app/Console/Commands/LastFmSyncWeekly.php) into a reusable service/action (`App\Actions\SyncLastFmChartRange`) that accepts any `(user, from, to, type, limit)` and powers these commands:
 
 #### 1. `lastfm:sync-yearly {user?} {--year=} {--limit=250} {--force}` *(Priority #1)*
 - Computes the range from the user's registration year (`registered.unixtime`) to the current year (or only the specified `--year=2022`).
@@ -471,7 +529,7 @@ erDiagram
 ```
 
 #### 2. HTTP Client: `App\Clients\DeezerClient` and Facade `Deezer`
-- **Configuration in [`config/services.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/config/services.php)**: `url`, `app_id`, `secret`, `access_token`.
+- **Configuration in [`config/services.php`](config/services.php)**: `url`, `app_id`, `secret`, `access_token`.
 - **Rate Limit & Cache**: Respects Deezer's rate limit (**50 requests / 5 sec**) and caches search responses with `Cache::rememberForever('dz.' . md5(...))`.
 - **Single-User Authentication**:
   - Catalog search (`GET /search/track`): **Public** (no token required).
@@ -494,11 +552,11 @@ erDiagram
 
 ### 5.5 Phase 4: Detailed Front-End Architecture (Zero-Login, React 19 + Inertia v3 + Tailwind v4)
 
-Built on the current stack ([`package.json`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/package.json): **React 19**, **Inertia.js v3**, **Tailwind CSS v4**, **Radix UI / shadcn**, **Lucide Icons**, **Sonner**, **Wayfinder**) with all login screens removed.
+Built on the current stack ([`package.json`](package.json): **React 19**, **Inertia.js v3**, **Tailwind CSS v4**, **Radix UI / shadcn**, **Lucide Icons**, **Sonner**, **Wayfinder**) with all login screens removed.
 
 #### 1. Zero-Login Setup (No Local Authentication)
-- Direct routes in [`routes/web.php`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/routes/web.php) with no `auth` or `verified` middleware.
-- In [`resources/js/components/app-sidebar.tsx`](file:///Users/felipegaitan/projects/laravel/lastfm_v3/resources/js/components/app-sidebar.tsx), `<NavUser />` is replaced by `<SyncStatusFooter />` (active Last.fm user, synced weeks, and Deezer connection status).
+- Direct routes in [`routes/web.php`](routes/web.php) with no `auth` or `verified` middleware.
+- In [`resources/js/components/app-sidebar.tsx`](resources/js/components/app-sidebar.tsx), `<NavUser />` is replaced by `<SyncStatusFooter />` (active Last.fm user, synced weeks, and Deezer connection status).
 
 #### 2. Main Views (Focused on Yearly, Monthly & Tag Analytics)
 
